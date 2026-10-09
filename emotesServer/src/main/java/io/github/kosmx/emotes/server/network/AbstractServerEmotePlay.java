@@ -137,6 +137,15 @@ public abstract class AbstractServerEmotePlay<P> extends ServerEmoteAPI {
      * @throws IOException probably not
      */
     protected void handleStreamEmote(NetData data, P player, INetworkInstance instance) throws IOException {
+        // CobbleLegacy : seules les émotes autorisées (possédées, gratuites…) sont diffusées, et dans la
+        // version du serveur. Refusée, l'émote s'arrête chez le joueur avec le message « émote bloquée ».
+        KeyframeAnimation authorized = ServerEmoteEvents.EMOTE_AUTHORIZE.invoker().authorize(data.emoteData, getUUIDFromPlayer(player));
+        if (authorized == null) {
+            EmotePacket.Builder stopMSG = new EmotePacket.Builder().configureToSendStop(data.emoteData.getUuid()).configureTarget(getUUIDFromPlayer(player)).setSizeLimit(0x100000);
+            if (instance != null) instance.sendMessage(stopMSG, null);
+            return;
+        }
+        data.emoteData = authorized;
         if (!data.valid && doValidate()) {
             EventResult result = ServerEmoteEvents.EMOTE_VERIFICATION.invoker().verify(data.emoteData, getUUIDFromPlayer(player));
             if (result != EventResult.FAIL) {

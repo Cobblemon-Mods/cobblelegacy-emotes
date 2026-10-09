@@ -1,11 +1,24 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 plugins {
     id "com.gradleup.shadow"
     id "com.modrinth.minotaur"
+    id "org.jetbrains.kotlin.jvm"
+    id "org.jetbrains.kotlin.plugin.compose"
+    id "org.jetbrains.compose"
 }
 
 architectury {
     platformSetupLoomIde()
     fabric()
+}
+
+repositories {
+    google()
+    maven {
+        url "https://jitpack.io"
+        content { includeGroup("com.github.apersomany") }
+    }
 }
 
 loom {
@@ -49,6 +62,75 @@ dependencies {
 
     common(project(path: ":minecraft:archCommon", configuration: "namedElements")) { transitive false }
     compileModule(project(path: ":minecraft:archCommon", configuration: "transformProductionFabric")) { transitive false }
+
+    // ─── CobbleLegacy : boutique, roue et collection d'émotes ───────────────────
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${rootProject.fabric_api_version}"
+    modImplementation "net.fabricmc:fabric-language-kotlin:${rootProject.fabric_kotlin_version}"
+
+    // Compose : compilation seulement, Composite (cobblelegacy-libs) fournit les classes en jeu.
+    implementation(compose.runtime)
+    implementation(compose.foundation)
+    implementation(compose.material3)
+    implementation(compose.materialIconsExtended)
+    implementation(compose.ui)
+    modCompileOnly "com.github.apersomany:composite:5c27c6a"
+    // En développement : la vraie cobblelegacy-libs (fork de Composite), sinon la version JitPack.
+    def localComposite = file("D:/CobbleLegacy/cobblelegacy_composite/build/libs/cobblelegacy-libs.jar")
+    if (localComposite.exists()) {
+        modLocalRuntime files(localComposite)
+    } else {
+        modLocalRuntime "com.github.apersomany:composite:5c27c6a"
+    }
+    // Autotest : le dernier Pokématos buildé à côté, pour vérifier son onglet « Émotes » (développement seulement).
+    def localPokematos = fileTree("D:/CobbleLegacy/cobblelegacy-pokematos/build/libs") {
+        include "cobblelegacy-pokematos-*.jar"
+        exclude "*-sources.jar"
+    }.files.sort { -it.lastModified() }.find()
+    if (localPokematos != null) {
+        modLocalRuntime files(localPokematos)
+        // Ses bibliothèques jar-in-jar ne sont pas chargées en développement.
+        localRuntime "redis.clients:jedis:5.1.0"
+    }
+
+    // Base MariaDB partagée par les serveurs (catalogue, émotes possédées), comme les capes.
+    include(implementation("com.zaxxer:HikariCP:5.1.0"))
+    include(implementation("org.mariadb.jdbc:mariadb-java-client:3.4.1"))
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget = JvmTarget.JVM_21
+    }
+}
+
+// ─── Autotest en jeu ───────────────────────────────────────────────────────────
+// `./gradlew :minecraft:fabric:runSelftest` lance le client, crée un monde plat, importe les émotes de
+// test, règle le catalogue, joue, achète, bloque, ouvre la roue, la collection, la boutique (aussi
+// dans le Pokématos s'il est buildé à côté) et l'éditeur, enregistre des captures dans
+// run/screenshots/selftest-*.png puis quitte. Ni ce code ni ses fichiers n'entrent dans le jar du mod.
+sourceSets {
+    selftest {
+        kotlin.srcDir 'src/selftest/kotlin'
+        compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
+        runtimeClasspath += sourceSets.main.output + sourceSets.main.runtimeClasspath
+    }
+}
+
+kotlin.target.compilations.selftest.associateWith(kotlin.target.compilations.main)
+
+loom {
+    runs {
+        selftest {
+            client()
+            configName = "Emotes self-test"
+            source sourceSets.selftest
+            vmArg "-Dcobblelegacy.emotes.selftest=true"
+            vmArg "-Dcobblelegacy.emotes.testEconomy=100000"
+            programArgs "--width", "1280", "--height", "720", "--username", "Danseur"
+            runDir "run"
+            ideConfigGenerated false
+        }
+    }
 }
 
 
@@ -82,6 +164,8 @@ remapJar{
     injectAccessWidener = true
     inputFile.set shadowJar.archiveFile
     archiveClassifier.set("fabric")
+    // Le jar livré (serveurs, launcher, libs-api du Pokématos) remplace emotecraft-for-MC1.21.1-2.4.12-fabric.jar.
+    archiveFileName.set("cobblelegacy-emotes-${rootProject.cobblelegacy_version}.jar")
 }
 
 jar {

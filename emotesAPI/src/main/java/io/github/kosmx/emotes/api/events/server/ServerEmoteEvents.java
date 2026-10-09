@@ -4,9 +4,32 @@ import dev.kosmx.playerAnim.core.data.KeyframeAnimation;
 import dev.kosmx.playerAnim.core.impl.event.Event;
 import dev.kosmx.playerAnim.core.impl.event.EventResult;
 
+import javax.annotation.Nullable;
 import java.util.UUID;
 
 public final class ServerEmoteEvents {
+
+    /**
+     * CobbleLegacy : appelé pour CHAQUE émote lancée par un joueur, avant sa diffusion.
+     * Renvoyer {@code null} refuse l'émote (le joueur la voit s'arrêter) ; sinon l'animation renvoyée
+     * remplace celle reçue du client (celle du catalogue du serveur, par exemple).
+     */
+    public static final Event<EmoteAuthorizer> EMOTE_AUTHORIZE = new Event<>(EmoteAuthorizer.class, listeners -> (emote, userID) -> {
+        KeyframeAnimation current = emote;
+        for (EmoteAuthorizer listener : listeners) {
+            current = listener.authorize(current, userID);
+            if (current == null) {
+                return null;
+            }
+        }
+        return current;
+    });
+
+    @FunctionalInterface
+    public interface EmoteAuthorizer {
+        @Nullable
+        KeyframeAnimation authorize(KeyframeAnimation emote, UUID userID);
+    }
 
     /**
      * Server verify emote if it can be streamed, or it has to be cancelled.

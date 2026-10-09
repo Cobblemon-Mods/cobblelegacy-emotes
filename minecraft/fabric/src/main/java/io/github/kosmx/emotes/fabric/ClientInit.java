@@ -25,7 +25,8 @@ import java.util.function.Consumer;
 @Environment(EnvType.CLIENT)
 public class ClientInit implements ClientModInitializer {
 
-    static KeyMapping openMenuKey;
+    /** Public : la roue CobbleLegacy surveille cette touche (maintenir puis relâcher sur une émote). */
+    public static KeyMapping openMenuKey;
     static KeyMapping stopEmote;
     static KeyMapping debugKey;
     static Consumer<Minecraft> keyBindingFunction;
@@ -63,7 +64,8 @@ public class ClientInit implements ClientModInitializer {
 
             if(openMenuKey.consumeClick()){
                 if(((ClientConfig) EmoteInstance.config).alwaysOpenEmoteScreen.get() || Minecraft.getInstance().player == Minecraft.getInstance().getCameraEntity()){
-                    Minecraft.getInstance().setScreen(new FastMenuScreen(null));
+                    // CobbleLegacy : roue Compose (retombe sur FastMenuScreen sans Composite).
+                    fr.owme.cobblelegacy.emotes.client.EmoteScreens.openWheel();
                 }
             }
             if(stopEmote.consumeClick()){

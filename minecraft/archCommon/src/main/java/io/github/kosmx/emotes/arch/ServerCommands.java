@@ -49,6 +49,12 @@ public final class ServerCommands {
                                     var emote = EmoteArgumentProvider.getEmote(context, "emote");
                                     if (!admin && ServerEmoteAPI.isForcedEmote(player))
                                         throw new SimpleCommandExceptionType(Component.literal("Can't stop forced emote without admin rights")).create();
+                                    if (!admin) {
+                                        // CobbleLegacy : la commande respecte la boutique (émote possédée ou gratuite).
+                                        emote = io.github.kosmx.emotes.api.events.server.ServerEmoteEvents.EMOTE_AUTHORIZE.invoker().authorize(emote, player);
+                                        if (emote == null)
+                                            throw new SimpleCommandExceptionType(Component.literal("Tu ne possèdes pas cette émote.")).create();
+                                    }
                                     ServerEmoteAPI.playEmote(player, emote, false);
                                     return 0;
                                 })

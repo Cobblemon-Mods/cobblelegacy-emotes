@@ -6,6 +6,11 @@ plugins{
     id "com.matthewprenger.cursegradle" version "1.4.0" apply false
     id "com.github.breadmoirai.github-release" version "2.4.1"
     id "com.modrinth.minotaur" version "2.8.4" apply false
+
+    // CobbleLegacy : interfaces Compose (Composite) du module Fabric
+    id "org.jetbrains.kotlin.jvm" version "2.3.10" apply false
+    id "org.jetbrains.kotlin.plugin.compose" version "2.3.10" apply false
+    id "org.jetbrains.compose" version "1.9.3" apply false
 }
 
 
@@ -15,6 +20,9 @@ allprojects {
     group = rootProject.maven_group
 
     repositories {
+        // En premier : le dépôt de KosmX renvoie parfois des 502, qui font échouer la résolution
+        // de n'importe quelle bibliothèque au lieu de passer au dépôt suivant.
+        mavenCentral()
         maven {
             name = "Modrinth"
             url = "https://api.modrinth.com/maven"
@@ -28,6 +36,10 @@ allprojects {
         }
         maven {
             url 'https://repo.redlance.org/public'
+            content {
+                includeGroupByRegex("dev\\.kosmx.*")
+                includeGroupByRegex("io\\.github\\.kosmx.*")
+            }
         }
         maven {
             url "https://libraries.minecraft.net"
@@ -71,12 +83,8 @@ ext.ENV = System.getenv()
 ext.cfType = ENV.RELEASE_TYPE ? ENV.RELEASE_TYPE : "alpha"
 ext.isRelease = cfType == "release"
 ext.changes = ENV.CHANGELOG ? ENV.CHANGELOG.replaceAll("\\\\n", "\n") : ""
-ext.mod_version = project.version_base
-
-
-if(!isRelease){
-    ext.mod_version = "${project.version_base}-${cfType[0]}.${ ENV.BUILD_NUMBER ? "build.${ENV.BUILD_NUMBER}" : 'git rev-parse --verify --short HEAD'.execute().text.trim()}"
-}
+// CobbleLegacy : version fixe (base Emotecraft + version CobbleLegacy), sans suffixe « alpha + commit ».
+ext.mod_version = "${project.version_base}+cobblelegacy.${project.cobblelegacy_version}"
 
 
 List<File> releaseArtifacts
@@ -152,7 +160,6 @@ else {
 
 //Build all modules task :D
 task buildAll{
-    dependsOn(':bukkit:build')
     dependsOn(':minecraft:buildAll')
 }
 
@@ -164,7 +171,6 @@ task cleanupArtifacts{
 
 task collectArtifacts{
     dependsOn('cleanupArtifacts')
-    dependsOn(':bukkit:copyArtifacts')
     dependsOn('minecraft:copyArtifacts')
     doLast {
         releaseArtifacts = project.getProjectDir().toPath().resolve("artifacts").toFile().listFiles()

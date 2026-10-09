@@ -13,6 +13,20 @@ import java.util.UUID;
 public final class ClientEmoteEvents {
 
     /**
+     * CobbleLegacy : le joueur local veut lancer une émote (roue, raccourci, commande).<br>
+     * {@link EventResult#FAIL} l'en empêche avant tout envoi au serveur (émote verrouillée, par exemple).
+     */
+    public static final Event<EmoteVerifier> LOCAL_EMOTE_REQUEST = new Event<>(EmoteVerifier.class, listeners -> (emote, userID) -> {
+        for (EmoteVerifier listener : listeners) {
+            EventResult result = listener.verify(emote, userID);
+            if (result == EventResult.FAIL || result == EventResult.CONSUME) {
+                return result;
+            }
+        }
+        return EventResult.PASS;
+    });
+
+    /**
      * Client verify emote if it can be played, or it has to be cancelled.<br>
      * Return with {@link EventResult#PASS} if you allow it and {@link EventResult#FAIL} if you deny it.<br>
      * Invoking this event does not mean the emote will be played even if the event wasn't cancelled.

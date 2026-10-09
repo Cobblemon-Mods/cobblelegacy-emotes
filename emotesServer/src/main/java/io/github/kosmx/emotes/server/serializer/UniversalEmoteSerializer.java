@@ -25,6 +25,8 @@ public class UniversalEmoteSerializer {
     public static UUIDMap<KeyframeAnimation> serverEmotes = new UUIDMap<>(); //Emotes have stable hash function.
     public static UUIDMap<KeyframeAnimation> hiddenServerEmotes = new UUIDMap<>(); //server-side loaded but NOT streamed emotes.
 
+    /** CobbleLegacy : appelés après chaque (re)chargement, qui vide les deux listes ci-dessus. */
+    public static final List<Runnable> RELOAD_LISTENERS = new java.util.concurrent.CopyOnWriteArrayList<>();
 
     /**
      * Read an emote file
@@ -104,6 +106,10 @@ public class UniversalEmoteSerializer {
         Path serverEmotesDir = EmoteInstance.instance.getExternalEmoteDir().toPath().resolve("server");
         if(Files.isDirectory(serverEmotesDir)) {
             EmoteSerializer.serializeEmotes(serverEmotes, serverEmotesDir);
+        }
+
+        for (Runnable listener : RELOAD_LISTENERS) {
+            listener.run();
         }
     }
 

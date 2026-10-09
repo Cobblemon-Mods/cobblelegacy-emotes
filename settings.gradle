@@ -4,6 +4,8 @@ pluginManagement {
         maven { url "https://maven.architectury.dev/" }
         maven { url "https://maven.neoforged.net/releases" }
         gradlePluginPortal()
+        mavenCentral()
+        google()
     }
 }
 
@@ -20,10 +22,11 @@ include 'emotesAssets'
 include 'minecraft'
 include 'minecraft:archCommon'
 include 'minecraft:fabric'
-include 'minecraft:neoforge'
+// CobbleLegacy : réseau Fabric uniquement, la version NeoForge et le plugin Bukkit ne sont pas buildés.
+//include 'minecraft:neoforge'
 
 //Bukkit plugin stuff
-include 'bukkit'
+//include 'bukkit'
 //include 'bukkit:debug'
 
 //Bungee plugin stuff

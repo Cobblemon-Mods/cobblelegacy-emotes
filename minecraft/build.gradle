@@ -33,7 +33,6 @@ allprojects {
 
 task buildAll{
     dependsOn(":minecraft:fabric:build")
-    dependsOn(":minecraft:neoforge:build")
 }
 
 task copyArtifacts{
@@ -41,11 +40,6 @@ task copyArtifacts{
     doLast {
         copy{
             from "${project.projectDir}/fabric/build/libs/${project.archivesBaseName}-${project.version}-fabric.jar"
-            into "${rootProject.projectDir}/artifacts"
-        }
-
-        copy{
-            from "${project.projectDir}/neoforge/build/libs/${project.archivesBaseName}-${project.version}-neoforge.jar"
             into "${rootProject.projectDir}/artifacts"
         }
     }

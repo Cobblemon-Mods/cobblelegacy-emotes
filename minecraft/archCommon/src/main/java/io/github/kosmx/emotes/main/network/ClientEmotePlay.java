@@ -33,6 +33,15 @@ public class ClientEmotePlay extends ClientEmoteAPI {
     //private static final int maxQueueLength = 256;
     private static final HashMap<UUID, QueueEntry> queue = new HashMap<>();
 
+    /**
+     * CobbleLegacy : version envoyée au serveur. Pour une émote du catalogue, une version allégée
+     * (même UUID et minutage) : le serveur et les autres joueurs ont déjà le fichier complet.
+     */
+    public static java.util.function.UnaryOperator<KeyframeAnimation> outgoingEmote = java.util.function.UnaryOperator.identity();
+
+    /** CobbleLegacy : version jouée quand une émote arrive (la copie locale complète d'une émote du catalogue). */
+    public static java.util.function.UnaryOperator<KeyframeAnimation> incomingEmote = java.util.function.UnaryOperator.identity();
+
     public static void clientStartLocalEmote(EmoteHolder emoteHolder) {
         clientStartLocalEmote(emoteHolder.getEmote());
     }
@@ -46,9 +55,13 @@ public class ClientEmotePlay extends ClientEmoteAPI {
         if (player.emotecraft$isForcedEmote()) {
             return false;
         }
+        // CobbleLegacy : émote verrouillée sur ce serveur (pas encore achetée…), on ne la lance pas.
+        if (ClientEmoteEvents.LOCAL_EMOTE_REQUEST.invoker().verify(emote, player.emotes_getUUID()) == EventResult.FAIL) {
+            return false;
+        }
 
         EmotePacket.Builder packetBuilder = new EmotePacket.Builder();
-        packetBuilder.configureToStreamEmote(emote, player.emotes_getUUID());
+        packetBuilder.configureToStreamEmote(outgoingEmote.apply(emote), player.emotes_getUUID());
         packetBuilder.configureEmoteTick(tick);
         ClientPacketManager.send(packetBuilder, null);
         ClientEmoteEvents.EMOTE_PLAY.invoker().onEmotePlay(emote, player.emotes_getUUID()); // TODO pass tick
@@ -58,7 +71,7 @@ public class ClientEmotePlay extends ClientEmoteAPI {
 
     public static void clientRepeatLocalEmote(KeyframeAnimation emote, int tick, UUID target){
         EmotePacket.Builder packetBuilder = new EmotePacket.Builder();
-        packetBuilder.configureToStreamEmote(emote, TmpGetters.getClientMethods().getMainPlayer().emotes_getUUID()).configureEmoteTick(tick);
+        packetBuilder.configureToStreamEmote(outgoingEmote.apply(emote), TmpGetters.getClientMethods().getMainPlayer().emotes_getUUID()).configureEmoteTick(tick);
         ClientPacketManager.send(packetBuilder, target);
     }
 
@@ -99,7 +112,7 @@ public class ClientEmotePlay extends ClientEmoteAPI {
             case STREAM:
                 assert data.emoteData != null;
                 if(data.valid || !(((ClientConfig)EmoteInstance.config).alwaysValidate.get() || !networkInstance.safeProxy())) {
-                    receivePlayPacket(data.emoteData, data.player, data.tick, data.isForced);
+                    receivePlayPacket(incomingEmote.apply(data.emoteData), data.player, data.tick, data.isForced);
                 }
                 break;
             case STOP:

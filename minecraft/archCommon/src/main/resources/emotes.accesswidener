@@ -3,3 +3,6 @@ accessWidener v2 named
 
 extendable class net/minecraft/client/OptionInstance$ValueSet
 extendable class net/minecraft/client/OptionInstance$SliderableValueSet
+
+# CobbleLegacy : le mannequin des aperçus reprend les couches de skin (chapeau, veste…) du joueur.
+accessible field net/minecraft/world/entity/player/Player DATA_PLAYER_MODE_CUSTOMISATION Lnet/minecraft/network/syncher/EntityDataAccessor;
