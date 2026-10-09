@@ -47,6 +47,7 @@ import net.minecraft.client.Screenshot
 import net.minecraft.client.gui.screens.PauseScreen
 import net.minecraft.client.gui.screens.Screen
 import net.minecraft.client.gui.screens.TitleScreen
+import net.minecraft.core.BlockPos
 import net.minecraft.core.RegistryAccess
 import net.minecraft.core.registries.Registries
 import net.minecraft.server.level.ServerPlayer
@@ -55,9 +56,11 @@ import net.minecraft.world.level.GameRules
 import net.minecraft.world.level.GameType
 import net.minecraft.world.level.LevelSettings
 import net.minecraft.world.level.WorldDataConfiguration
+import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.level.levelgen.WorldDimensions
 import net.minecraft.world.level.levelgen.WorldOptions
 import net.minecraft.world.level.levelgen.presets.WorldPresets
+import net.minecraft.world.phys.Vec3
 import org.lwjgl.glfw.GLFW
 import org.slf4j.LoggerFactory
 import java.nio.file.Files
@@ -85,6 +88,9 @@ object SelfTest {
 
     private const val MAX_TICKS = 20 * 900
 
+    /** La course de Naruto du dossier de test (nom en russe). */
+    private const val NARUTO = "наруто"
+
     private var stage = 0
     private var wait = 0
     private var ticks = 0
@@ -104,6 +110,9 @@ object SelfTest {
     private var balanceBefore = 0L
     private var testEmoteId: UUID? = null
     private var pokematosOpened = false
+    private var walkedFrom = Vec3.ZERO
+    private var pool = BlockPos.ZERO
+    private var wheelPageBefore = 0
     private val ids = HashMap<String, UUID>()
 
     @JvmStatic
@@ -255,6 +264,8 @@ object SelfTest {
                     name.contains("hug") -> payload = payload.copy(newDurationMs = 0)
                     name.contains("breakdance") -> payload = payload.copy(price = 200_000, rarity = EmoteRarity.LEGENDAIRE)
                 }
+                // La course de Naruto se joue en se déplaçant.
+                if (name.contains(NARUTO)) payload = payload.copy(playableWhileMoving = true)
                 adminOnServer(mc) { server, done -> EmoteAdmin.save(server, null, payload, done) }
             }
         }
@@ -272,7 +283,57 @@ object SelfTest {
             check("prix réduit de la Macarena : 450 (600 −25 %)", ClientEmoteCatalog.settings.priceOf(byName("macarena"), System.currentTimeMillis()) == 450L)
             check("Hug sans badge NEW", !byName("hug").isNew(System.currentTimeMillis()))
             check("administrateur : tout est jouable", ClientEmoteCatalog.playsAll && EmoteLibrary.entries().filter { it.listing != null }.all { it.unlocked })
+            check("course de Naruto réglée « en mouvement »", byName(NARUTO).playableWhileMoving && !byName("cool sit").playableWhileMoving)
         }
+
+        // ── Déplacements : marcher arrête une émote, sauf celles réglées « en mouvement » ──
+        then("émote normale", 12) { mc -> check("une émote se lance à l'arrêt", playLocal(mc, "cool sit")) }
+        then("marcher avec une émote normale", 15) { mc ->
+            check("l'émote joue", playing(mc))
+            mc.options.keyUp.setDown(true)
+        }
+        then("émote normale en marchant", 2) { mc ->
+            mc.options.keyUp.setDown(false)
+            check("marcher arrête une émote normale", !playing(mc))
+        }
+        then("émote en mouvement", 12) { mc -> check("la course de Naruto se lance", playLocal(mc, NARUTO)) }
+        then("marcher avec l'émote en mouvement", 15) { mc ->
+            walkedFrom = mc.player!!.position()
+            mc.options.keyUp.setDown(true)
+        }
+        then("émote en mouvement en marchant", 2) { mc ->
+            val distance = mc.player!!.position().distanceTo(walkedFrom)
+            check("le joueur a marché (${"%.1f".format(distance)} blocs)", distance > 1.0)
+            check("marcher n'arrête pas une émote « en mouvement »", playingEmote(mc) == id(NARUTO))
+            ClientEmotePlay.clientStopLocalEmote()
+        }
+        then("lancer en marchant", 2) { mc ->
+            check("en marchant, une émote normale ne se lance pas", !playLocal(mc, "cool sit"))
+            check("en marchant, une émote « en mouvement » se lance", playLocal(mc, NARUTO))
+        }
+        then("s'accroupir", 12) { mc ->
+            mc.options.keyUp.setDown(false)
+            mc.options.keyShift.setDown(true)
+        }
+        then("accroupi", 5) { mc ->
+            mc.options.keyShift.setDown(false)
+            check("s'accroupir arrête l'émote", !playing(mc))
+        }
+        then("piscine", 12) { mc ->
+            onServer {
+                val level = player().serverLevel()
+                pool = player().blockPosition().offset(12, 0, 0)
+                for (dx in -2..2) for (dz in -2..2) for (dy in -3..1) level.setBlock(pool.offset(dx, dy, dz), Blocks.WATER.defaultBlockState(), 3)
+            }
+            check("course lancée avant de plonger", playLocal(mc, NARUTO))
+        }
+        then("plonger", 10) { _ -> onServer { player().teleportTo(pool.x + 0.5, pool.y - 1.0, pool.z + 0.5) } }
+        then("dans l'eau", 5) { mc ->
+            check("le joueur nage", mc.player!!.isInWater && !mc.player!!.onGround())
+            check("nager arrête même une émote « en mouvement »", !playing(mc))
+            check("pas d'émote à la nage", !playLocal(mc, NARUTO))
+        }
+        then("sortir de l'eau", 20) { _ -> onServer { player().teleportTo(pool.x + 0.5 - 12, pool.y.toDouble(), pool.z + 0.5) } }
 
         // ── Écrans en administrateur ──
         then("boutique (administrateur)", 30) { _ -> ComposeEmoteScreens.openShop(null) }
@@ -410,6 +471,19 @@ object SelfTest {
             shot(mc, "04-roue-verrouillee")
             pointerAway(mc)
         }
+        then("molette : un cran vers le bas", 20) { mc ->
+            val screen = mc.screen as EmoteWheelScreen
+            wheelPageBefore = screen.vm.page
+            screen.mouseScrolled(10.0, 10.0, 0.0, -1.0)
+        }
+        then("molette : un cran vers le haut", 20) { mc ->
+            val screen = mc.screen as EmoteWheelScreen
+            check("un cran de molette = une page, sans dérive (page ${wheelPageBefore + 1} → ${screen.vm.page + 1})", screen.vm.page == (wheelPageBefore + 1) % WheelConfig.PAGES)
+            screen.mouseScrolled(10.0, 10.0, 0.0, 1.0)
+        }
+        then("molette : retour", 2) { mc ->
+            check("le cran inverse revient à la page ${wheelPageBefore + 1}", (mc.screen as EmoteWheelScreen).vm.page == wheelPageBefore)
+        }
         then("touche 1", 10) { mc -> mc.screen!!.keyPressed(GLFW.GLFW_KEY_1, 0, 0) }
         then("Griddy depuis la roue", 10) { mc ->
             check("la touche 1 lance la case 1 et ferme la roue", mc.screen == null && mc.player!!.`emotecraft$getEmote`()?.data?.uuid == id("griddy"))
@@ -503,12 +577,22 @@ object SelfTest {
             check("l'éditeur Compose s'ouvre", mc.screen is EmoteEditorScreen)
             shot(mc, "13-editeur")
             val vm = (mc.screen as EmoteEditorScreen).vm
-            vm.update { it.copy(price = "950") }
+            vm.update { it.copy(price = "950", playableWhileMoving = true) }
             vm.save()
         }
         waitFor("prix modifié", 10) { onServer { ServerEmoteCatalog.listings[id("macarena")]?.price } == 950L }
+        then("bas du formulaire", 40) { mc ->
+            // Pointeur du jeu sur le formulaire (colonne de droite), puis quelques crans de molette.
+            pointAt(mc, mc.window.screenWidth * 0.82, mc.window.screenHeight * 0.6)
+            repeat(6) { mc.screen!!.mouseScrolled(0.0, 0.0, 0.0, -1.0) }
+        }
+        then("capture du formulaire", 5) { mc ->
+            shot(mc, "13b-editeur-mouvement")
+            pointerAway(mc)
+        }
         then("nouvelle émote : fichier", 10) { mc ->
             check("prix changé depuis l'éditeur (950)", true)
+            check("« en mouvement » activé depuis l'éditeur", onServer { ServerEmoteCatalog.listings[id("macarena")]?.playableWhileMoving } == true)
             val source = EmoteHolder.list[id("griddy")]!!.emote.mutableCopy()
             val newId = UUID.randomUUID()
             source.uuid = newId
@@ -579,6 +663,13 @@ object SelfTest {
 
     private fun animation(part: String): KeyframeAnimation = EmoteHolder.list[id(part)]!!.emote
 
+    /** Comme la roue : par Emotecraft, qui vérifie posture et déplacement. */
+    private fun playLocal(mc: Minecraft, part: String): Boolean = EmoteHolder.list[id(part)]!!.playEmote(mc.player!!)
+
+    private fun playing(mc: Minecraft): Boolean = mc.player!!.isPlayingEmote
+
+    private fun playingEmote(mc: Minecraft): UUID? = mc.player!!.`emotecraft$getEmote`()?.takeIf { it.isActive }?.data?.uuid
+
     private fun buy(part: String, expectedPrice: Long) {
         ClientPlayNetworking.send(EmoteBuyPayload(id(part), expectedPrice))
     }
@@ -616,7 +707,7 @@ object SelfTest {
         categoryId = listing.categoryId ?: "", rarity = listing.rarity, access = listing.access, price = listing.price,
         discountPercent = if (listing.discountEndsAtMs > System.currentTimeMillis()) listing.discountPercent else 0,
         discountDurationMs = EmoteEditorSavePayload.KEEP, published = listing.published,
-        newDurationMs = EmoteEditorSavePayload.KEEP, fileSha256 = ""
+        newDurationMs = EmoteEditorSavePayload.KEEP, playableWhileMoving = listing.playableWhileMoving, fileSha256 = ""
     )
 
     private fun player(): ServerPlayer {

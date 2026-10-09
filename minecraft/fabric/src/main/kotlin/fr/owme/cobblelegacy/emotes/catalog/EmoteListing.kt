@@ -50,7 +50,9 @@ data class EmoteListing(
     val durationTicks: Int,
     val loops: Boolean,
     val hasIcon: Boolean,
-    val addedAtMs: Long
+    val addedAtMs: Long,
+    /** Se joue en se déplaçant (une course…) : marcher ou voler ne l'arrête pas, s'accroupir oui. */
+    val playableWhileMoving: Boolean = false
 ) {
     val forSale: Boolean get() = published && access == EmoteAccess.SHOP && price > 0
 

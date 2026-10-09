@@ -13,7 +13,6 @@ import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Apps
 import androidx.compose.material.icons.outlined.Lock
-import androidx.compose.material.icons.outlined.StopCircle
 import androidx.compose.material.icons.outlined.Warning
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -45,7 +44,6 @@ import fr.owme.cobblelegacy.emotes.client.ui.Toast
 import io.github.kosmx.emotes.fabric.ClientInit
 import io.github.kosmx.emotes.inline.TmpGetters
 import io.github.kosmx.emotes.main.EmoteHolder
-import io.github.kosmx.emotes.main.network.ClientEmotePlay
 import io.github.kosmx.emotes.main.network.ClientPacketManager
 import kotlinx.coroutines.isActive
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper
@@ -99,6 +97,15 @@ class EmoteWheelScreen(internal val vm: WheelViewModel) : ComposeScreen(content 
             return true
         }
         return super.keyPressed(keyCode, scanCode, modifiers)
+    }
+
+    /**
+     * Un cran de molette = une page. Pas de passage par Compose : Composite y étale chaque cran sur
+     * plusieurs images, et un seul cran faisait défiler plusieurs pages.
+     */
+    override fun mouseScrolled(mouseX: Double, mouseY: Double, scrollX: Double, scrollY: Double): Boolean {
+        if (scrollY != 0.0) vm.changePage(if (scrollY > 0) -1 else 1)
+        return true
     }
 }
 
@@ -180,13 +187,6 @@ class WheelViewModel {
             return false
         }
         return play(slot)
-    }
-
-    val playing: Boolean
-        get() = TmpGetters.getClientMethods().mainPlayer?.isPlayingEmote == true
-
-    fun stop() {
-        ClientEmotePlay.clientStopLocalEmote()
     }
 
     fun isWheelKey(keyCode: Int, scanCode: Int): Boolean =
@@ -272,7 +272,6 @@ private fun EmoteWheelContent(vm: WheelViewModel) {
                     hovered = vm.hovered,
                     onHover = { vm.hovered = it },
                     onClick = { slot, secondary -> if (vm.click(slot, secondary)) Minecraft.getInstance().setScreen(null) },
-                    onScroll = { vm.changePage(it) },
                     size = wheelSize,
                     accent = accent
                 ) { innerDiameter ->
@@ -286,16 +285,8 @@ private fun EmoteWheelContent(vm: WheelViewModel) {
             PageDots(vm)
             Spacer(Modifier.height(14.dp))
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                WheelButton(Icons.Outlined.Apps, EmotesI18n.t("wheel.all"), accent) {
-                    ComposeEmoteScreens.openCollection(null, null)
-                }
-                if (vm.playing) {
-                    WheelButton(Icons.Outlined.StopCircle, EmotesI18n.t("wheel.stop"), EmotesTheme.StatusError) {
-                        vm.stop()
-                        Minecraft.getInstance().setScreen(null)
-                    }
-                }
+            WheelButton(Icons.Outlined.Apps, EmotesI18n.t("wheel.all"), accent) {
+                ComposeEmoteScreens.openCollection(null, null)
             }
             Spacer(Modifier.height(8.dp))
             Text(EmotesI18n.t("wheel.hint"), fontSize = 9.sp, color = EmotesTheme.TextMuted, textAlign = TextAlign.Center)

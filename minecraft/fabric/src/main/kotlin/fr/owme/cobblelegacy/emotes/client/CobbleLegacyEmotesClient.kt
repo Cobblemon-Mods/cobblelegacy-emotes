@@ -14,6 +14,7 @@ import fr.owme.cobblelegacy.emotes.EmoteFiles
 import io.github.kosmx.emotes.api.events.client.ClientEmoteEvents
 import io.github.kosmx.emotes.main.EmoteHolder
 import io.github.kosmx.emotes.main.network.ClientEmotePlay
+import java.util.function.Predicate
 import java.util.function.UnaryOperator
 import net.fabricmc.api.ClientModInitializer
 import net.fabricmc.api.EnvType
@@ -27,6 +28,7 @@ import net.fabricmc.loader.api.FabricLoader
 import net.minecraft.ChatFormatting
 import net.minecraft.client.Minecraft
 import net.minecraft.network.chat.Component
+import net.minecraft.world.entity.player.Player
 
 @Environment(EnvType.CLIENT)
 object CobbleLegacyEmotesClient : ClientModInitializer {
@@ -66,11 +68,16 @@ object CobbleLegacyEmotesClient : ClientModInitializer {
             }
         }
 
-        ClientTickEvents.END_CLIENT_TICK.register {
+        ClientTickEvents.END_CLIENT_TICK.register { client ->
             ClientEmoteFiles.tick()
             EmotePreviews.tick()
             EmoteUploader.tick()
+            stopEmoteInWater(client)
         }
+
+        // Émotes réglées « en mouvement » dans l'éditeur (une course…) : marcher, courir ou voler ne
+        // les arrête pas. S'accroupir les arrête toujours (Emotecraft, changement de posture).
+        ClientEmotePlay.playableWhileMoving = Predicate { emote -> ClientEmoteCatalog.byId[emote.uuid]?.playableWhileMoving == true }
 
         // Émotes du catalogue : le réseau ne transporte qu'une version allégée, chacun joue sa copie
         // téléchargée (les grosses émotes dépassaient la taille d'un paquet d'Emotecraft).
@@ -83,13 +90,16 @@ object CobbleLegacyEmotesClient : ClientModInitializer {
 
         // Émote verrouillée (raccourci clavier, commande, ancienne roue…) : rien ne part au serveur.
         ClientEmoteEvents.LOCAL_EMOTE_REQUEST.register { emote, _ ->
-            if (EmoteLibrary.canPlay(emote.uuid)) {
+            val mc = Minecraft.getInstance()
+            val refusal = when {
+                !EmoteLibrary.canPlay(emote.uuid) -> "cobblelegacy-emotes.locked.actionbar"
+                mc.player?.let(::isSwimming) == true -> "cobblelegacy-emotes.water.actionbar"
+                else -> null
+            }
+            if (refusal == null) {
                 EventResult.PASS
             } else {
-                Minecraft.getInstance().gui.setOverlayMessage(
-                    Component.translatable("cobblelegacy-emotes.locked.actionbar").withStyle(ChatFormatting.GOLD),
-                    false
-                )
+                mc.gui.setOverlayMessage(Component.translatable(refusal).withStyle(ChatFormatting.GOLD), false)
                 EventResult.FAIL
             }
         }
@@ -107,6 +117,20 @@ object CobbleLegacyEmotesClient : ClientModInitializer {
                         1
                     })
             )
+        }
+    }
+
+    /** Dans l'eau sans toucher le fond (ou en nage rapide) : pas d'émote. */
+    fun isSwimming(player: Player): Boolean = player.isSwimming || (player.isInWater && !player.onGround())
+
+    /**
+     * Pas d'émote à la nage. Emotecraft n'arrête que la nage rapide : nager doucement garde la posture
+     * debout, et une émote jouable en mouvement continuerait.
+     */
+    private fun stopEmoteInWater(client: Minecraft) {
+        val player = client.player ?: return
+        if (player.isPlayingEmote && !player.`emotecraft$isForcedEmote`() && isSwimming(player)) {
+            ClientEmotePlay.clientStopLocalEmote()
         }
     }
 }

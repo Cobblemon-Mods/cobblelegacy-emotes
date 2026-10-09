@@ -67,6 +67,8 @@ class EmoteEditorViewModel(initialSelection: UUID?) {
         /** Vide : garder la fin actuelle du badge (ou la durée par défaut pour une nouvelle émote). */
         val newDays: String,
         val published: Boolean,
+        /** Se joue en se déplaçant : marcher ou voler ne l'arrête pas. */
+        val playableWhileMoving: Boolean,
         /** Nouveau fichier à envoyer (icône changée) : octets et empreinte. */
         val pendingFile: ByteArray? = null,
         val pendingSha: String? = null,
@@ -176,7 +178,7 @@ class EmoteEditorViewModel(initialSelection: UUID?) {
                 author = draft.parsed.author.take(EmoteListing.MAX_AUTHOR_LENGTH),
                 categoryId = null, rarity = EmoteRarity.COMMUN, access = EmoteAccess.SHOP,
                 price = "500", discountPercent = "0", discountDays = "",
-                newEnabled = settings.newDays > 0, newDays = "", published = false
+                newEnabled = settings.newDays > 0, newDays = "", published = false, playableWhileMoving = false
             )
         } else {
             val listing = listing(id) ?: run {
@@ -191,7 +193,8 @@ class EmoteEditorViewModel(initialSelection: UUID?) {
                 categoryId = listing.categoryId, rarity = listing.rarity, access = listing.access,
                 price = if (listing.price > 0) listing.price.toString() else "",
                 discountPercent = discount.toString(), discountDays = "",
-                newEnabled = listing.isNew(now), newDays = "", published = listing.published
+                newEnabled = listing.isNew(now), newDays = "", published = listing.published,
+                playableWhileMoving = listing.playableWhileMoving
             )
         }
     }
@@ -321,6 +324,7 @@ class EmoteEditorViewModel(initialSelection: UUID?) {
             discountDurationMs = discountDuration,
             published = current.published,
             newDurationMs = newDuration,
+            playableWhileMoving = current.playableWhileMoving,
             fileSha256 = if (file != null) sha!! else ""
         )
         if (!ClientPlayNetworking.canSend(EmoteEditorSavePayload.TYPE)) return toast(EmotesI18n.t("editor.error.server"), false)
@@ -347,7 +351,7 @@ class EmoteEditorViewModel(initialSelection: UUID?) {
                 author = draft.parsed.author.take(EmoteListing.MAX_AUTHOR_LENGTH),
                 categoryId = "", rarity = EmoteRarity.COMMUN, access = EmoteAccess.SHOP, price = 500,
                 discountPercent = 0, discountDurationMs = 0, published = false,
-                newDurationMs = EmoteEditorSavePayload.KEEP, fileSha256 = draft.sha256
+                newDurationMs = EmoteEditorSavePayload.KEEP, playableWhileMoving = false, fileSha256 = draft.sha256
             )
             EmoteUploader.send(draft.data, draft.sha256) { ClientPlayNetworking.send(payload) }
         }

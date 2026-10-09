@@ -246,6 +246,7 @@ class FileEmoteStorage(private val directory: Path) : EmoteStorage {
         addProperty("boucle", listing.loops)
         addProperty("icone", listing.hasIcon)
         addProperty("ajouteeLe", listing.addedAtMs)
+        addProperty("enMouvement", listing.playableWhileMoving)
     }
 
     private fun fromJson(json: JsonObject) = EmoteListing(
@@ -267,7 +268,8 @@ class FileEmoteStorage(private val directory: Path) : EmoteStorage {
         durationTicks = json.get("dureeTicks")?.asInt ?: 0,
         loops = json.get("boucle")?.asBoolean ?: false,
         hasIcon = json.get("icone")?.asBoolean ?: false,
-        addedAtMs = json.get("ajouteeLe")?.asLong ?: 0L
+        addedAtMs = json.get("ajouteeLe")?.asLong ?: 0L,
+        playableWhileMoving = json.get("enMouvement")?.asBoolean ?: false
     )
 
     companion object {

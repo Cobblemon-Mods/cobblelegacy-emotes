@@ -42,6 +42,12 @@ public class ClientEmotePlay extends ClientEmoteAPI {
     /** CobbleLegacy : version jouée quand une émote arrive (la copie locale complète d'une émote du catalogue). */
     public static java.util.function.UnaryOperator<KeyframeAnimation> incomingEmote = java.util.function.UnaryOperator.identity();
 
+    /**
+     * CobbleLegacy : émote jouable en se déplaçant (une course, par exemple) : marcher, courir ou voler ne
+     * l'arrête pas, seul un changement de posture le fait (s'accroupir, nager…).
+     */
+    public static java.util.function.Predicate<KeyframeAnimation> playableWhileMoving = emote -> false;
+
     public static void clientStartLocalEmote(EmoteHolder emoteHolder) {
         clientStartLocalEmote(emoteHolder.getEmote());
     }

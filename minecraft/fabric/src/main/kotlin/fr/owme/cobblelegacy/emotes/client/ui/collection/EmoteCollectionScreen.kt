@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.DirectionsRun
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.*
@@ -14,9 +15,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -33,8 +37,6 @@ import fr.owme.cobblelegacy.emotes.client.WheelConfig
 import fr.owme.cobblelegacy.emotes.client.preview.EmotePlayerPreview
 import fr.owme.cobblelegacy.emotes.client.ui.*
 import fr.owme.cobblelegacy.emotes.client.ui.wheel.EmoteWheel
-import io.github.kosmx.emotes.PlatformTools
-import io.github.kosmx.emotes.arch.gui.screen.ConfigScreen
 import io.github.kosmx.emotes.main.network.ClientPacketManager
 import kotlinx.coroutines.isActive
 import net.minecraft.client.Minecraft
@@ -62,6 +64,21 @@ class EmoteCollectionScreen(internal val vm: CollectionViewModel) :
     override fun onClose() {
         // Venu de la roue pour y placer une émote : on y retourne.
         if (vm.target != null) ComposeEmoteScreens.openWheel() else super.onClose()
+    }
+
+    /**
+     * Molette sur la petite roue de placement : un cran = une page. Composite étale chaque cran sur
+     * plusieurs images, passé à Compose il faisait tourner plusieurs pages. Ailleurs (grille, filtres),
+     * le défilement reste celui de Compose.
+     */
+    override fun mouseScrolled(mouseX: Double, mouseY: Double, scrollX: Double, scrollY: Double): Boolean {
+        val bounds = vm.placingWheelBounds
+        val scale = minecraft?.window?.guiScale ?: 1.0
+        if (vm.placing && bounds != null && bounds.contains(Offset((mouseX * scale).toFloat(), (mouseY * scale).toFloat()))) {
+            if (scrollY != 0.0) vm.changePlacingPage(if (scrollY > 0) -1 else 1)
+            return true
+        }
+        return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY)
     }
 }
 
@@ -130,8 +147,6 @@ private fun TopBar(vm: CollectionViewModel) {
                 TopButton(Icons.Outlined.Edit, EmotesI18n.t("collection.editor"), EmotesTheme.Admin) { ComposeEmoteScreens.openEditor(vm.selectedId) }
                 Spacer(Modifier.width(8.dp))
             }
-            TopButton(Icons.Outlined.DonutLarge, EmotesI18n.t("collection.wheel"), accent) { ComposeEmoteScreens.openWheel() }
-            Spacer(Modifier.width(8.dp))
             CountBadge(EmotesI18n.t("collection.badge.unlocked", vm.unlockedCount, vm.entries.size), accent)
         }
         Box(Modifier.fillMaxWidth().height(1.dp).background(accent.copy(alpha = 0.07f)))
@@ -281,17 +296,6 @@ private fun Sidebar(vm: CollectionViewModel) {
             ) {
                 Text(EmotesI18n.t("collection.reset_filters"), fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = EmotesTheme.TextSubtle)
             }
-        }
-
-        Spacer(Modifier.weight(1f))
-
-        // Réglages d'Emotecraft (perspective, sons…) et dossier des émotes perso.
-        SecondaryButton(Icons.Outlined.Settings, EmotesI18n.t("collection.options")) {
-            val mc = Minecraft.getInstance()
-            mc.setScreen(ConfigScreen(mc.screen))
-        }
-        if (!vm.managed) {
-            SecondaryButton(Icons.Outlined.FolderOpen, EmotesI18n.t("collection.open_folder")) { PlatformTools.openExternalEmotesDir() }
         }
     }
 }
@@ -496,6 +500,7 @@ private fun Details(vm: CollectionViewModel, entry: EmoteEntry) {
         ) {
             if (entry.author.isNotBlank()) InfoChip(Icons.Outlined.Person, EmotesI18n.t("collection.chip.author", entry.author))
             InfoChip(Icons.Outlined.Timer, if (entry.loops) EmotesI18n.t("collection.detail.loop") else EmotesI18n.animationLength(entry.durationTicks))
+            if (entry.listing?.playableWhileMoving == true) InfoChip(Icons.AutoMirrored.Outlined.DirectionsRun, EmotesI18n.t("collection.chip.moving"))
             if (entry.unlocked) {
                 val key = vm.keyOf(entry.id)
                 when {
@@ -580,8 +585,9 @@ private fun PlacingPanel(vm: CollectionViewModel, entry: EmoteEntry, modifier: M
                 hovered = vm.placingHovered,
                 onHover = { vm.placingHovered = it },
                 onClick = { slot, secondary -> vm.assign(vm.placingPage, slot, if (secondary) null else entry.id) },
-                onScroll = { vm.changePlacingPage(it) },
                 size = size,
+                // La molette sur cette roue est lue par l'écran (un cran = une page), cf. mouseScrolled.
+                modifier = Modifier.onGloballyPositioned { vm.placingWheelBounds = it.boundsInRoot() },
                 compact = true
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {

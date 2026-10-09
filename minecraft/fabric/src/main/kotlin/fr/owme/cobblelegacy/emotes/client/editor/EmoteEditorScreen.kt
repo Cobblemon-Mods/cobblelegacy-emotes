@@ -7,6 +7,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.DirectionsRun
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalTextStyle
@@ -443,6 +444,17 @@ private fun FormColumn(vm: EmoteEditorViewModel) {
             },
             fontSize = 8.sp, color = EmotesTheme.TextMuted
         )
+
+        FieldLabel(EmotesI18n.t("editor.field.moving"))
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Toggle(form.playableWhileMoving) { enabled -> vm.update { it.copy(playableWhileMoving = enabled) } }
+            Icon(Icons.AutoMirrored.Outlined.DirectionsRun, null, tint = if (form.playableWhileMoving) Amber else EmotesTheme.TextMuted, modifier = Modifier.size(14.dp))
+            Text(
+                EmotesI18n.t(if (form.playableWhileMoving) "editor.moving.on" else "editor.moving.off"),
+                fontSize = 9.sp, color = if (form.playableWhileMoving) EmotesTheme.TextPrimary else EmotesTheme.TextSoft
+            )
+        }
+        Text(EmotesI18n.t("editor.moving.hint"), fontSize = 8.sp, color = EmotesTheme.TextMuted)
 
         FieldLabel(EmotesI18n.t("editor.field.visibility"))
         ChipRow {

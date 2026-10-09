@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.geometry.Rect
 import com.mojang.blaze3d.platform.InputConstants
 import fr.owme.cobblelegacy.emotes.catalog.EmoteAccess
 import fr.owme.cobblelegacy.emotes.catalog.EmoteRarity
@@ -60,6 +61,9 @@ class CollectionViewModel(initialSelection: UUID?, val target: WheelTarget?) {
     var placingPage by mutableIntStateOf(target?.page ?: WheelConfig.page)
         private set
     var placingHovered by mutableStateOf<Int?>(null)
+
+    /** Où est la petite roue, en pixels de la fenêtre : la molette y change de page. */
+    var placingWheelBounds: Rect? = null
 
     /** En attente d'une touche pour le raccourci de l'émote choisie. */
     var capturingKey by mutableStateOf(false)

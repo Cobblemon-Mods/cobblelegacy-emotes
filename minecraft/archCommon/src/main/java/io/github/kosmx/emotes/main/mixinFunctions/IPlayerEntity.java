@@ -70,7 +70,7 @@ public interface IPlayerEntity extends IEmotePlayerEntity {
             if(this.isMainPlayer() && emotecraft$getEmote().perspective == 1 && TmpGetters.getClientMethods().getPerspective() != TPBPerspective.get()){
                 this.emotecraft$getEmote().perspective = 0;
             }
-            if(this.isMainPlayer() && !this.emotecraft$isForcedEmote() && !EmoteHolder.canRunEmote(this)){
+            if(this.isMainPlayer() && !this.emotecraft$isForcedEmote() && !EmoteHolder.canRunEmote(this, ClientEmotePlay.playableWhileMoving.test(this.emotecraft$getEmote().getData()))){
                 this.emotecraft$getEmote().stop();
                 ClientEmotePlay.clientStopLocalEmote(this.emotecraft$getEmote().getData());
             }

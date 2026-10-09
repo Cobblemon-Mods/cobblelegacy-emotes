@@ -1,6 +1,7 @@
 package fr.owme.cobblelegacy.emotes.server
 
 import com.mojang.brigadier.CommandDispatcher
+import com.mojang.brigadier.arguments.BoolArgumentType
 import com.mojang.brigadier.arguments.IntegerArgumentType
 import com.mojang.brigadier.arguments.LongArgumentType
 import com.mojang.brigadier.arguments.StringArgumentType
@@ -100,6 +101,13 @@ object EmoteCommands {
                         )
                     )
                 )
+                .then(
+                    Commands.literal("mouvement").then(
+                        Commands.argument("emote", StringArgumentType.string()).suggests(emoteSuggestions).then(
+                            Commands.argument("actif", BoolArgumentType.bool()).executes(::moving)
+                        )
+                    )
+                )
         )
     }
 
@@ -133,6 +141,7 @@ object EmoteCommands {
             val flags = buildList {
                 if (!listing.published) add("brouillon")
                 if (listing.isNew(now)) add("NEW")
+                if (listing.playableWhileMoving) add("en mouvement")
                 ServerEmoteCatalog.settings.discountOf(listing, now).takeIf { it > 0 }?.let { add("-$it %") }
             }.joinToString(", ")
             context.source.sendSuccess({
@@ -248,6 +257,15 @@ object EmoteCommands {
         return 1
     }
 
+    private fun moving(context: CommandContext<CommandSourceStack>): Int {
+        val listing = emoteArg(context) ?: return 0
+        val moving = BoolArgumentType.getBool(context, "actif")
+        save(context, listing.copyForSave(playableWhileMoving = moving)) {
+            if (moving) "« ${listing.name} » se joue maintenant en se déplaçant." else "« ${listing.name} » s'arrête de nouveau quand le joueur bouge."
+        }
+        return 1
+    }
+
     private fun save(context: CommandContext<CommandSourceStack>, payload: EmoteEditorSavePayload, success: () -> String) {
         EmoteAdmin.save(context.source.server, context.source.player?.uuid, payload) { error ->
             if (error != null) fail(context, error) else ok(context, success())
@@ -258,7 +276,8 @@ object EmoteCommands {
     private fun EmoteListing.copyForSave(
         access: EmoteAccess = this.access,
         price: Long = this.price,
-        newDurationMs: Long = EmoteEditorSavePayload.KEEP
+        newDurationMs: Long = EmoteEditorSavePayload.KEEP,
+        playableWhileMoving: Boolean = this.playableWhileMoving
     ) = EmoteEditorSavePayload(
         creating = false,
         id = id,
@@ -273,6 +292,7 @@ object EmoteCommands {
         discountDurationMs = EmoteEditorSavePayload.KEEP,
         published = published,
         newDurationMs = newDurationMs,
+        playableWhileMoving = playableWhileMoving,
         fileSha256 = ""
     )
 }

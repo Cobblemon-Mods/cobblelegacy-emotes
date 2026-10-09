@@ -8,6 +8,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.DirectionsRun
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -425,6 +426,9 @@ private fun EmoteDetail(vm: EmoteShopViewModel, host: EmoteShopHost, entry: Emot
                 Icons.Outlined.Timer, EmotesI18n.t("collection.detail.duration"),
                 if (entry.loops) EmotesI18n.t("collection.detail.loop") else EmotesI18n.animationLength(entry.durationTicks)
             )
+            if (entry.listing?.playableWhileMoving == true) {
+                InfoRow(Icons.AutoMirrored.Outlined.DirectionsRun, EmotesI18n.t("shop.detail.moving"), EmotesI18n.t("shop.detail.moving.value"))
+            }
 
             Spacer(Modifier.height(4.dp))
             PurchaseBlock(vm, host, entry)

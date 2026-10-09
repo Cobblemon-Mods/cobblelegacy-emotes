@@ -106,7 +106,8 @@ object EmoteAdmin {
             durationTicks = parsed?.durationTicks ?: base!!.durationTicks,
             loops = parsed?.loops ?: base!!.loops,
             hasIcon = parsed?.hasIcon ?: base!!.hasIcon,
-            addedAtMs = base?.addedAtMs ?: now
+            addedAtMs = base?.addedAtMs ?: now,
+            playableWhileMoving = payload.playableWhileMoving
         )
         commit(server, ServerEmoteCatalog.storage!!.saveListing(listing, file, author), "Enregistrement impossible.", done)
     }

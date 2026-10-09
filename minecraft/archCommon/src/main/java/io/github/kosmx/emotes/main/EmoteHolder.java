@@ -197,15 +197,15 @@ public class EmoteHolder implements Supplier<UUID> {
      * @return could be played
      */
     public static boolean playEmote(KeyframeAnimation emote, IEmotePlayerEntity player, @Nullable EmoteHolder emoteHolder){
-        if(canPlayEmote(player)){
+        if(canPlayEmote(player, emote)){
             return ClientEmotePlay.clientStartLocalEmote(emote);
         }else{
             return false;
         }
     }
 
-    private static boolean canPlayEmote(IEmotePlayerEntity entity){
-        if(! canRunEmote(entity)) return false;
+    private static boolean canPlayEmote(IEmotePlayerEntity entity, KeyframeAnimation emote){
+        if(! canRunEmote(entity, ClientEmotePlay.playableWhileMoving.test(emote))) return false;
         if(!entity.isMainPlayer()) return false;
         return ! (IEmotePlayer.isRunningEmote(entity.emotecraft$getEmote()) && ! entity.emotecraft$getEmote().isLoopStarted());
     }
@@ -216,8 +216,14 @@ public class EmoteHolder implements Supplier<UUID> {
      * @return True if possible to play
      */
     public static boolean canRunEmote(IEmotePlayerEntity player){
+        return canRunEmote(player, false);
+    }
+
+    /** CobbleLegacy : {@code moving} = l'émote se joue en se déplaçant, le mouvement du joueur ne compte pas. */
+    public static boolean canRunEmote(IEmotePlayerEntity player, boolean moving){
         if(! TmpGetters.getClientMethods().isAbstractClientEntity(player)) return false;
         if(player.emotecraft$isNotStanding() && !ClientPacketManager.isRemoteTracking()) return false;
+        if(moving) return true;
         //System.out.println(player.getPos().distanceTo(new Vec3d(player.prevX, player.prevY, player.prevZ)));
         Vec3d prevPos = player.emotecraft$getPrevPos();
         return ! (player.emotecraft$emotesGetPos().distanceTo(new Vec3d(prevPos.getX(), MathHelper.lerp(((ClientConfig)EmoteInstance.config).yRatio.get(), prevPos.getY(), player.emotecraft$emotesGetPos().getY()), prevPos.getZ())) > ((ClientConfig)EmoteInstance.config).stopThreshold.get());
@@ -262,11 +268,13 @@ public class EmoteHolder implements Supplier<UUID> {
 
 
     public static void handleKeyPress(InputConstants.Key key){
-        if(EmoteInstance.instance != null && EmoteHolder.canRunEmote(TmpGetters.getClientMethods().getMainPlayer())){
+        if(EmoteInstance.instance != null){
             UUID uuid = ((ClientConfig)EmoteInstance.config).emoteKeyMap.getL(key);
             if(uuid != null){
                 EmoteHolder emoteHolder = list.get(uuid);
-                if(emoteHolder != null)ClientEmotePlay.clientStartLocalEmote(emoteHolder);
+                // CobbleLegacy : une émote jouable en se déplaçant se lance aussi en marchant.
+                if(emoteHolder != null && canRunEmote(TmpGetters.getClientMethods().getMainPlayer(), ClientEmotePlay.playableWhileMoving.test(emoteHolder.getEmote())))
+                    ClientEmotePlay.clientStartLocalEmote(emoteHolder);
             }
         }
     }

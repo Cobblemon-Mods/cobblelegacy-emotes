@@ -82,8 +82,10 @@ fun wheelSlotAt(position: Offset, center: Offset, innerRadius: Float, outerRadiu
 /**
  * La roue ronde : huit cases en anneau autour d'un disque central ([center]).
  *
- * Survol, clics (gauche ou droit) et molette passent par une boucle pointeur brute : sous Composite,
- * les détecteurs de gestes standards perturbent les clics suivants.
+ * Survol et clics (gauche ou droit) passent par une boucle pointeur brute : sous Composite, les
+ * détecteurs de gestes standards perturbent les clics suivants. La molette est lue par l'écran
+ * (`mouseScrolled`) : Composite étale chaque cran sur plusieurs images, ici un cran tournait
+ * plusieurs pages.
  */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
@@ -92,7 +94,6 @@ fun EmoteWheel(
     hovered: Int?,
     onHover: (Int?) -> Unit,
     onClick: (slot: Int, secondary: Boolean) -> Unit,
-    onScroll: (Int) -> Unit,
     size: Dp,
     modifier: Modifier = Modifier,
     accent: Color = EmotesTheme.Accent,
@@ -107,7 +108,6 @@ fun EmoteWheel(
     val inner = outer * INNER_RATIO
     val hoverRef = rememberUpdatedState(onHover)
     val clickRef = rememberUpdatedState(onClick)
-    val scrollRef = rememberUpdatedState(onScroll)
 
     // Chaque case « sort » un peu de l'anneau quand on la survole.
     val lifts = (0 until SLOT_COUNT).map { index ->
@@ -142,13 +142,6 @@ fun EmoteWheel(
                                 val target = pressed
                                 pressed = null
                                 if (target != null && target == slot) clickRef.value(target, pressedSecondary)
-                            }
-                            PointerEventType.Scroll -> {
-                                val delta = change.scrollDelta.y
-                                if (delta != 0f) {
-                                    scrollRef.value(if (delta > 0) 1 else -1)
-                                    change.consume()
-                                }
                             }
                             else -> {}
                         }
