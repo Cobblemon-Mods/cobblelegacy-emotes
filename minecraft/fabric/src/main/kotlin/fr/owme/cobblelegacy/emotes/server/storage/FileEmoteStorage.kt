@@ -83,8 +83,14 @@ class FileEmoteStorage(private val directory: Path) : EmoteStorage {
         true
     }
 
-    override fun deleteListing(id: UUID): CompletableFuture<Boolean> = submit(false) {
-        listings.remove(id)
+    override fun saveListings(listings: List<EmoteListing>): CompletableFuture<Boolean> = submit(false) {
+        listings.forEach { this.listings[it.id] = it }
+        changed()
+        true
+    }
+
+    override fun deleteListings(ids: Collection<UUID>): CompletableFuture<Boolean> = submit(false) {
+        ids.forEach { listings.remove(it) }
         changed()
         true
     }

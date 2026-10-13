@@ -9,6 +9,7 @@ import fr.owme.cobblelegacy.emotes.catalog.EmoteRarity
 import fr.owme.cobblelegacy.emotes.catalog.EmoteShopSettings
 import fr.owme.cobblelegacy.emotes.network.EmoteCategoryEditPayload
 import fr.owme.cobblelegacy.emotes.network.EmoteEditorActionPayload
+import fr.owme.cobblelegacy.emotes.network.EmoteEditorBulkPayload
 import fr.owme.cobblelegacy.emotes.network.EmoteEditorSavePayload
 import fr.owme.cobblelegacy.emotes.network.EmoteShopSettingsPayload
 import net.minecraft.server.MinecraftServer
@@ -137,6 +138,90 @@ object EmoteAdmin {
                 ordered.add(target, ordered.removeAt(index))
                 val orders = ordered.withIndex().associate { (position, entry) -> entry.id to position }
                 commit(server, storage.saveSortOrders(orders), "Déplacement impossible.", done)
+            }
+        }
+    }
+
+    // ─── Actions groupées ────────────────────────────────────────────────────────
+
+    /** Même modification sur plusieurs émotes. [done] reçoit l'erreur, ou `null` et le compte rendu. */
+    fun bulk(server: MinecraftServer, payload: EmoteEditorBulkPayload, done: (error: String?, summary: String) -> Unit) =
+        enqueue(server, { done(INTERNAL_ERROR, "") }) { finish ->
+            doBulk(server, payload) { error, summary -> done(error, summary); finish() }
+        }
+
+    private fun doBulk(server: MinecraftServer, payload: EmoteEditorBulkPayload, done: (String?, String) -> Unit) {
+        unavailable()?.let { return done(it, "") }
+        val storage = ServerEmoteCatalog.storage!!
+        val targets = payload.ids.distinct().mapNotNull { ServerEmoteCatalog.listings[it] }
+        if (targets.isEmpty()) return done("Ces émotes ne sont plus dans le catalogue.", "")
+        val now = System.currentTimeMillis()
+        val forSale = targets.filter { it.access == EmoteAccess.SHOP }
+        val maxDuration = EmoteShopSettings.MAX_DAYS * DAY
+        val days = payload.durationMs / DAY
+        when (payload.action) {
+            EmoteEditorBulkPayload.Action.PUBLISH -> {
+                val ready = targets.filter { it.access != EmoteAccess.SHOP || it.price > 0 }
+                if (ready.isEmpty()) return done("Donne-leur un prix avant de les publier.", "")
+                val skipped = targets.size - ready.size
+                val summary = emotes(ready.size, "publiée") + if (skipped > 0) " ($skipped sans prix restent en brouillon)." else "."
+                commitBulk(server, storage.setPublished(ready.map { it.id }, true), summary, done)
+            }
+            EmoteEditorBulkPayload.Action.UNPUBLISH ->
+                commitBulk(server, storage.setPublished(targets.map { it.id }, false), emotes(targets.size, "repassée") + " en brouillon.", done)
+            EmoteEditorBulkPayload.Action.CATEGORY -> {
+                val categoryId = payload.categoryId.ifBlank { null }
+                val category = categoryId?.let { id ->
+                    ServerEmoteCatalog.categories.firstOrNull { it.id == id } ?: return done("Cette catégorie n'existe plus.", "")
+                }
+                val summary = if (category != null) emotes(targets.size, "rangée") + " dans « ${category.name} »." else emotes(targets.size, "retirée") + " de leur catégorie."
+                commitBulk(server, storage.saveListings(targets.map { it.copy(categoryId = categoryId) }), summary, done)
+            }
+            EmoteEditorBulkPayload.Action.PRICE -> {
+                if (payload.price !in 1..EmoteShopSettings.MAX_PRICE) return done("Prix invalide.", "")
+                if (forSale.isEmpty()) return done("Aucune de ces émotes n'est en vente.", "")
+                commitBulk(
+                    server, storage.saveListings(forSale.map { it.copy(price = payload.price) }),
+                    "Prix de ${count(forSale.size)} : ${EmoteShopServer.crystals(payload.price)} cristaux.", done
+                )
+            }
+            EmoteEditorBulkPayload.Action.DISCOUNT -> {
+                if (forSale.isEmpty()) return done("Aucune de ces émotes n'est en vente.", "")
+                val percent = payload.percent
+                if (percent != 0 && percent !in 1..EmoteShopSettings.MAX_PROMO_PERCENT) {
+                    return done("La réduction doit être comprise entre 1 et ${EmoteShopSettings.MAX_PROMO_PERCENT} %.", "")
+                }
+                if (percent != 0 && payload.durationMs !in 1..maxDuration) return done("La réduction dure de 1 à ${EmoteShopSettings.MAX_DAYS} jours.", "")
+                val updated = forSale.map {
+                    if (percent == 0) it.copy(discountPercent = 0, discountEndsAtMs = 0L)
+                    else it.copy(discountPercent = percent, discountEndsAtMs = now + payload.durationMs)
+                }
+                val summary = if (percent == 0) "Réduction retirée de ${count(forSale.size)}." else "-$percent % sur ${count(forSale.size)} pendant $days jour(s)."
+                commitBulk(server, storage.saveListings(updated), summary, done)
+            }
+            EmoteEditorBulkPayload.Action.NEW_BADGE -> {
+                val until = when (payload.durationMs) {
+                    0L -> 0L
+                    in 1..maxDuration -> now + payload.durationMs
+                    else -> return done("Le badge NEW dure de 1 à ${EmoteShopSettings.MAX_DAYS} jours.", "")
+                }
+                val summary = if (until == 0L) "Badge NEW retiré de ${count(targets.size)}." else "Badge NEW sur ${count(targets.size)} pendant $days jour(s)."
+                commitBulk(server, storage.saveListings(targets.map { it.copy(newUntilMs = until) }), summary, done)
+            }
+            EmoteEditorBulkPayload.Action.DELETE ->
+                commitBulk(server, storage.deleteListings(targets.map { it.id }), emotes(targets.size, "supprimée") + " du catalogue.", done)
+        }
+    }
+
+    /** « 1 émote publiée », « 3 émotes publiées ». */
+    private fun emotes(count: Int, participle: String) = if (count == 1) "1 émote $participle" else "$count émotes ${participle}s"
+
+    private fun count(count: Int) = if (count == 1) "1 émote" else "$count émotes"
+
+    private fun commitBulk(server: MinecraftServer, write: CompletableFuture<Boolean>, summary: String, done: (String?, String) -> Unit) {
+        write.thenAccept { ok ->
+            server.execute {
+                if (ok) ServerEmoteCatalog.reload { done(null, summary) } else done("Enregistrement impossible.", "")
             }
         }
     }

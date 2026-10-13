@@ -118,6 +118,9 @@ sourceSets {
 
 kotlin.target.compilations.selftest.associateWith(kotlin.target.compilations.main)
 
+// Émotes de test : le dossier selftest-emotes à côté du dépôt s'il existe (stable), sinon Téléchargements.
+def selftestEmotes = file("${rootDir}/../selftest-emotes")
+
 loom {
     runs {
         selftest {
@@ -126,6 +129,7 @@ loom {
             source sourceSets.selftest
             vmArg "-Dcobblelegacy.emotes.selftest=true"
             vmArg "-Dcobblelegacy.emotes.testEconomy=100000"
+            if (selftestEmotes.isDirectory()) vmArg "-Dcobblelegacy.emotes.selftestEmotes=${selftestEmotes.absolutePath}"
             programArgs "--width", "1280", "--height", "720", "--username", "Danseur"
             runDir "run"
             ideConfigGenerated false

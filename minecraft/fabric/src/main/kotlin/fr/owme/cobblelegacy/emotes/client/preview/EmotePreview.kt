@@ -22,6 +22,18 @@ class EmotePreview {
     /** Ticks avant de relancer une émote terminée. */
     var pauseBetweenLoops = 12
 
+    /** Lecture figée (bouton pause de l'éditeur) : le mannequin garde sa pose. */
+    var paused = false
+
+    /** Avancement de l'émote, de 0 à 1 (une émote en boucle repart de sa boucle). */
+    val progress: Float
+        get() {
+            val current = animation ?: return 0f
+            val tick = player?.`emotecraft$getEmote`()?.tick ?: return 0f
+            val length = (if (current.isInfinite) current.endTick else current.stopTick).coerceAtLeast(1)
+            return (tick.toFloat() / length).coerceIn(0f, 1f)
+        }
+
     fun show(next: KeyframeAnimation?) {
         if (next === animation) return
         animation = next
@@ -50,6 +62,7 @@ class EmotePreview {
 
     fun tick() {
         val mannequin = player ?: return
+        if (paused) return
         mannequin.tickCount++
         // L'interface de PlayerAnimator est ajoutée par mixin, invisible pour le compilateur.
         ((mannequin as Any) as IPlayer).animationStack.tick()

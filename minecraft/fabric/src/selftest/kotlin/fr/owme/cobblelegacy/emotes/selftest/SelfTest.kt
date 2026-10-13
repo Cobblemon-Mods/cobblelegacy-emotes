@@ -1,5 +1,6 @@
 package fr.owme.cobblelegacy.emotes.selftest
 
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.unit.dp
 import com.mojang.blaze3d.platform.InputConstants
 import dev.kosmx.playerAnim.core.data.KeyframeAnimation
@@ -14,6 +15,11 @@ import fr.owme.cobblelegacy.emotes.client.EmoteClientEvents
 import fr.owme.cobblelegacy.emotes.client.EmoteLibrary
 import fr.owme.cobblelegacy.emotes.client.WheelConfig
 import fr.owme.cobblelegacy.emotes.client.editor.EmoteEditorScreen
+import fr.owme.cobblelegacy.emotes.client.editor.EmoteEditorViewModel
+import fr.owme.cobblelegacy.emotes.client.editor.EmoteEditorViewModel.Menu
+import fr.owme.cobblelegacy.emotes.client.editor.EmoteEditorViewModel.PanelTab
+import fr.owme.cobblelegacy.emotes.client.editor.EmoteEditorViewModel.Sort
+import fr.owme.cobblelegacy.emotes.client.editor.EmoteEditorViewModel.StatusFilter
 import fr.owme.cobblelegacy.emotes.client.shop.emoteShopNewCount
 import fr.owme.cobblelegacy.emotes.client.ui.ComposeEmoteScreens
 import fr.owme.cobblelegacy.emotes.client.ui.collection.EmoteCollectionScreen
@@ -22,6 +28,7 @@ import fr.owme.cobblelegacy.emotes.client.ui.wheel.wheelSizeFor
 import fr.owme.cobblelegacy.emotes.network.EmoteBuyPayload
 import fr.owme.cobblelegacy.emotes.network.EmoteCategoryEditPayload
 import fr.owme.cobblelegacy.emotes.network.EmoteEditorActionPayload
+import fr.owme.cobblelegacy.emotes.network.EmoteEditorBulkPayload
 import fr.owme.cobblelegacy.emotes.network.EmoteEditorSavePayload
 import fr.owme.cobblelegacy.emotes.network.EmoteShopResultPayload
 import fr.owme.cobblelegacy.emotes.network.EmoteShopSettingsPayload
@@ -77,7 +84,7 @@ import kotlin.math.sin
  * ce code n'entre pas dans le jar du mod).
  *
  * Monde plat, catalogue local (pas de MariaDB), économie de test (100 000 cristaux). Les émotes de
- * `-Dcobblelegacy.emotes.selftestEmotes` (par défaut le dossier Téléchargements) sont importées, puis
+ * `-Dcobblelegacy.emotes.selftestEmotes` (le dossier selftest-emotes à côté du dépôt, sinon Téléchargements) sont importées, puis
  * le test règle le catalogue, joue des émotes, achète, vérifie les refus côté serveur, ouvre la roue,
  * la collection, la boutique, l'onglet « Émotes » du Pokématos (s'il est buildé à côté) et l'éditeur.
  * Captures dans run/screenshots/selftest-*.png ; le journal résume « SELFTEST ok » / « SELFTEST ECHEC »
@@ -109,6 +116,7 @@ object SelfTest {
     private val shopResults = ArrayList<EmoteShopResultPayload>()
     private var balanceBefore = 0L
     private var testEmoteId: UUID? = null
+    private var testEmoteId2: UUID? = null
     private var pokematosOpened = false
     private var walkedFrom = Vec3.ZERO
     private var pool = BlockPos.ZERO
@@ -575,63 +583,134 @@ object SelfTest {
         then("ouvrir l'éditeur", 30) { _ -> ComposeEmoteScreens.openEditor(id("macarena")) }
         then("capture éditeur", 5) { mc ->
             check("l'éditeur Compose s'ouvre", mc.screen is EmoteEditorScreen)
+            val vm = editor(mc)
+            check("panneau ouvert sur l'émote demandée", vm.form?.id == id("macarena"))
             shot(mc, "13-editeur")
-            val vm = (mc.screen as EmoteEditorScreen).vm
             vm.update { it.copy(price = "950", playableWhileMoving = true) }
+            check("2 modifications comptées avant d'enregistrer (${vm.changeCount})", vm.changeCount == 2)
+            check("point de modification sur les onglets Vente et Options seulement",
+                vm.changedIn(PanelTab.SALE) && vm.changedIn(PanelTab.OPTIONS) && !vm.changedIn(PanelTab.INFOS))
             vm.save()
         }
         waitFor("prix modifié", 10) { onServer { ServerEmoteCatalog.listings[id("macarena")]?.price } == 950L }
-        then("bas du formulaire", 40) { mc ->
-            // Pointeur du jeu sur le formulaire (colonne de droite), puis quelques crans de molette.
-            pointAt(mc, mc.window.screenWidth * 0.82, mc.window.screenHeight * 0.6)
-            repeat(6) { mc.screen!!.mouseScrolled(0.0, 0.0, 0.0, -1.0) }
-        }
-        then("capture du formulaire", 5) { mc ->
-            shot(mc, "13b-editeur-mouvement")
-            pointerAway(mc)
-        }
-        then("nouvelle émote : fichier", 10) { mc ->
+        then("onglet Options", 20) { mc ->
             check("prix changé depuis l'éditeur (950)", true)
             check("« en mouvement » activé depuis l'éditeur", onServer { ServerEmoteCatalog.listings[id("macarena")]?.playableWhileMoving } == true)
-            val source = EmoteHolder.list[id("griddy")]!!.emote.mutableCopy()
-            val newId = UUID.randomUUID()
-            source.uuid = newId
-            source.name = "\"Autotest\""
-            val bytes = EmoteFiles.toBinary(source.build())
-            val file = mc.gameDirectory.toPath().resolve("selftest").resolve("Autotest.emotecraft")
-            Files.createDirectories(file.parent)
-            Files.write(file, bytes)
+            val vm = editor(mc)
+            check("formulaire relu après l'enregistrement (plus rien en attente)", vm.form != null && vm.changeCount == 0)
+            vm.panelTab = PanelTab.OPTIONS
+        }
+        then("capture options", 5) { mc ->
+            shot(mc, "13b-editeur-options")
+            editor(mc).panelTab = PanelTab.SALE
+        }
+        then("capture vente", 5) { mc ->
+            shot(mc, "13c-editeur-vente")
+            val vm = editor(mc)
+            val now = System.currentTimeMillis()
+            vm.query = "maca"
+            check("recherche dans la grille (${vm.visibleListings.size} résultat)", vm.visibleListings.map { it.id } == listOf(id("macarena")))
+            vm.query = ""
+            vm.statusFilter = StatusFilter.PROMO
+            check("filtre « En promotion » (${vm.visibleListings.size})", vm.visibleListings.isNotEmpty() && vm.visibleListings.all { vm.discountOf(it, now) > 0 })
+            vm.clearFilters()
+            vm.sort = Sort.NAME
+            val names = vm.visibleListings.map { it.name.lowercase() }
+            check("tri par nom", names == names.sorted())
+            vm.sort = Sort.CATALOG
+        }
+        then("nouvelle émote : fichier", 10) { mc ->
+            val newId = writeTestEmote(mc, "Autotest")
             testEmoteId = newId
-            val vm = (mc.screen as EmoteEditorScreen).vm
-            vm.importFiles(listOf(file))
+            val vm = editor(mc)
+            vm.importFiles(listOf(testFile(mc, "Autotest")))
             check("fichier ajouté en brouillon dans l'éditeur", vm.drafts.any { it.id == newId } && vm.form?.creating == true)
+            vm.panelTab = PanelTab.INFOS
         }
         then("capture brouillon", 15) { mc -> shot(mc, "14-editeur-brouillon") }
         then("enregistrer la nouvelle émote", 5) { mc ->
-            val vm = (mc.screen as EmoteEditorScreen).vm
-            vm.update { it.copy(name = "Autotest", price = "1234", published = true, categoryId = onServer { ServerEmoteCatalog.categories.first().id }) }
-            vm.save()
+            val vm = editor(mc)
+            vm.update { it.copy(name = "Autotest", price = "1234", categoryId = onServer { ServerEmoteCatalog.categories.first().id }) }
+            // Bouton « Ajouter et publier »
+            vm.save(publish = true)
         }
         waitFor("émote envoyée et enregistrée", 10) { onServer { ServerEmoteCatalog.listings[testEmoteId!!] } != null }
         waitFor("émote téléchargée par le client", 10) { ClientEmoteFiles.isReady(testEmoteId!!) }
-        then("nouvelle émote vérifiée", 10) { _ ->
+        then("nouvelle émote vérifiée", 10) { mc ->
             val listing = onServer { ServerEmoteCatalog.listings[testEmoteId!!] }!!
             check("nouvelle émote au catalogue (envoi par morceaux, ${listing.fileSize} o)", listing.price == 1234L && listing.published && listing.isNew(System.currentTimeMillis()))
             check("animation relue par le serveur", onServer { ServerEmoteCatalog.animationOf(testEmoteId!!) } != null)
+            // Deuxième fichier, ajouté par « Tout ajouter en brouillon ».
+            testEmoteId2 = writeTestEmote(mc, "Autotest2")
+            val vm = editor(mc)
+            vm.importFiles(listOf(testFile(mc, "Autotest2")))
+            vm.saveAllDrafts()
         }
+        waitFor("brouillons ajoutés", 10) { onServer { ServerEmoteCatalog.listings[testEmoteId2!!] } != null }
+        then("sélection multiple", 10) { mc ->
+            val second = onServer { ServerEmoteCatalog.listings[testEmoteId2!!] }!!
+            check("« Tout ajouter en brouillon » : au catalogue, non publiée, 500 cristaux", !second.published && second.price == 500L)
+            val vm = editor(mc)
+            vm.closePanel()
+            vm.toggleSelection(testEmoteId!!)
+            vm.toggleSelection(testEmoteId2!!)
+            check("2 émotes cochées", vm.selection.size == 2)
+            // Le menu « Promo » de la barre d'actions, ouvert comme par son bouton (bas de la grille).
+            val width = mc.window.width.toFloat()
+            val height = mc.window.height.toFloat()
+            vm.openMenu(Menu.BULK_DISCOUNT, Rect(width * 0.30f, height * 0.86f, width * 0.36f, height * 0.89f))
+        }
+        then("capture sélection", 5) { mc ->
+            shot(mc, "14b-editeur-selection")
+            val vm = editor(mc)
+            vm.bulkPercent = 20
+            vm.bulkDays = "2"
+            vm.applyBulkDiscount(remove = false)
+        }
+        waitFor("réduction groupée", 10) { bothTestEmotes { it.itemDiscount(System.currentTimeMillis()) == 20 } }
+        then("catégorie groupée", 5) { mc ->
+            check("réduction -20 % sur les 2 émotes cochées", true)
+            check("menu refermé après l'action", editor(mc).menu == null)
+            editor(mc).bulk(EmoteEditorBulkPayload.Action.CATEGORY, categoryId = gesturesId())
+        }
+        waitFor("catégorie appliquée", 10) { bothTestEmotes { it.categoryId == gesturesId() } }
+        then("dépublier en groupe", 5) { mc ->
+            check("catégorie « Gestes » sur les 2 émotes", true)
+            editor(mc).bulk(EmoteEditorBulkPayload.Action.UNPUBLISH)
+        }
+        waitFor("dépubliées", 10) { bothTestEmotes { !it.published } }
+        then("publier en groupe", 5) { mc ->
+            check("les 2 émotes repassent en brouillon", true)
+            editor(mc).bulk(EmoteEditorBulkPayload.Action.PUBLISH)
+        }
+        waitFor("publiées", 10) { bothTestEmotes { it.published } }
+        then("prix groupé", 5) { mc ->
+            check("les 2 émotes publiées d'un coup", true)
+            val vm = editor(mc)
+            vm.bulkPrice = "777"
+            vm.applyBulkPrice()
+        }
+        waitFor("prix appliqué", 10) { bothTestEmotes { it.price == 777L } }
+        then("badge NEW retiré", 5) { mc ->
+            check("prix 777 sur les 2 émotes", true)
+            editor(mc).applyBulkNew(remove = true)
+        }
+        waitFor("badge retiré", 10) { bothTestEmotes { !it.isNew(System.currentTimeMillis()) } }
         then("catégories de l'éditeur", 20) { mc ->
-            val vm = (mc.screen as EmoteEditorScreen).vm
-            vm.tab = fr.owme.cobblelegacy.emotes.client.editor.EmoteEditorViewModel.Tab.CATEGORIES
+            check("badge NEW retiré des 2 émotes", true)
+            check("sélection gardée entre les actions", editor(mc).selection.size == 2)
+            editor(mc).clearSelection()
+            editor(mc).tab = EmoteEditorViewModel.Tab.CATEGORIES
         }
         then("capture catégories", 5) { mc -> shot(mc, "15-editeur-categories") }
         then("onglet boutique", 20) { mc ->
-            val vm = (mc.screen as EmoteEditorScreen).vm
+            val vm = editor(mc)
             vm.loadShopFields()
-            vm.tab = fr.owme.cobblelegacy.emotes.client.editor.EmoteEditorViewModel.Tab.SHOP
+            vm.tab = EmoteEditorViewModel.Tab.SHOP
         }
         then("capture réglages", 5) { mc ->
             shot(mc, "16-editeur-boutique")
-            val vm = (mc.screen as EmoteEditorScreen).vm
+            val vm = editor(mc)
             vm.promoPercent = "30"
             vm.promoDays = "1"
             vm.saveShopSettings()
@@ -639,16 +718,29 @@ object SelfTest {
         waitFor("promotion modifiée", 10) { onServer { ServerEmoteCatalog.settings.promoPercent } == 30 }
         then("supprimer l'émote de test", 10) { mc ->
             check("promotion réglée depuis l'éditeur (-30 %)", true)
-            val vm = (mc.screen as EmoteEditorScreen).vm
-            vm.tab = fr.owme.cobblelegacy.emotes.client.editor.EmoteEditorViewModel.Tab.EMOTES
+            val vm = editor(mc)
+            vm.tab = EmoteEditorViewModel.Tab.EMOTES
             vm.select(testEmoteId!!)
             vm.action(EmoteEditorActionPayload.Action.DELETE)
             vm.action(EmoteEditorActionPayload.Action.DELETE)
         }
         waitFor("émote supprimée", 10) { onServer { ServerEmoteCatalog.listings.containsKey(testEmoteId!!) } == false }
-        then("fin", 20) { mc ->
+        then("suppression groupée", 10) { mc ->
             check("suppression depuis l'éditeur (deux clics)", true)
             check("l'émote supprimée quitte le client", !ClientEmoteCatalog.byId.containsKey(testEmoteId!!))
+            check("panneau refermé après la suppression", editor(mc).selectedId == null)
+            val vm = editor(mc)
+            vm.toggleSelection(testEmoteId2!!)
+            vm.bulk(EmoteEditorBulkPayload.Action.DELETE)
+            check("suppression groupée : un premier clic demande confirmation", vm.confirmBulkDelete && onServer { ServerEmoteCatalog.listings.containsKey(testEmoteId2!!) })
+        }
+        then("confirmer la suppression groupée", 5) { mc ->
+            shot(mc, "14c-editeur-suppression")
+            editor(mc).bulk(EmoteEditorBulkPayload.Action.DELETE)
+        }
+        waitFor("émote supprimée en groupe", 10) { onServer { ServerEmoteCatalog.listings.containsKey(testEmoteId2!!) } == false }
+        then("fin", 20) { mc ->
+            check("suppression groupée (deux clics)", editor(mc).selection.isEmpty())
             mc.setScreen(null)
             ComposeEmoteScreens.openWheel()
         }
@@ -656,6 +748,28 @@ object SelfTest {
     }
 
     // ── Outils du test ──
+
+    private fun editor(mc: Minecraft): EmoteEditorViewModel = (mc.screen as EmoteEditorScreen).vm
+
+    private fun testFile(mc: Minecraft, name: String): Path = mc.gameDirectory.toPath().resolve("selftest").resolve("$name.emotecraft")
+
+    /** Une copie de Griddy sous un autre identifiant, écrite dans run/selftest/[name].emotecraft. */
+    private fun writeTestEmote(mc: Minecraft, name: String): UUID {
+        val source = EmoteHolder.list[id("griddy")]!!.emote.mutableCopy()
+        val newId = UUID.randomUUID()
+        source.uuid = newId
+        source.name = "\"$name\""
+        val file = testFile(mc, name)
+        Files.createDirectories(file.parent)
+        Files.write(file, EmoteFiles.toBinary(source.build()))
+        return newId
+    }
+
+    private fun bothTestEmotes(condition: (EmoteListing) -> Boolean): Boolean = onServer {
+        listOf(testEmoteId!!, testEmoteId2!!).all { id -> ServerEmoteCatalog.listings[id]?.let(condition) == true }
+    }
+
+    private fun gesturesId(): String = onServer { ServerEmoteCatalog.categories.first { it.name == "Gestes" }.id }
 
     private fun byName(part: String): EmoteListing = ClientEmoteCatalog.listings.first { it.name.lowercase().contains(part) }
 

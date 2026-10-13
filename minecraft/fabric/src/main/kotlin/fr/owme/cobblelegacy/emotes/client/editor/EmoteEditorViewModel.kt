@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.ImageBitmap
 import dev.kosmx.playerAnim.core.data.KeyframeAnimation
 import fr.owme.cobblelegacy.emotes.EmoteFiles
@@ -25,6 +26,7 @@ import fr.owme.cobblelegacy.emotes.client.ui.EmotesI18n
 import fr.owme.cobblelegacy.emotes.client.ui.normalizeSearch
 import fr.owme.cobblelegacy.emotes.network.EmoteCategoryEditPayload
 import fr.owme.cobblelegacy.emotes.network.EmoteEditorActionPayload
+import fr.owme.cobblelegacy.emotes.network.EmoteEditorBulkPayload
 import fr.owme.cobblelegacy.emotes.network.EmoteEditorResultPayload
 import fr.owme.cobblelegacy.emotes.network.EmoteEditorSavePayload
 import fr.owme.cobblelegacy.emotes.network.EmoteShopSettingsPayload
@@ -38,6 +40,16 @@ import java.util.UUID
 class EmoteEditorViewModel(initialSelection: UUID?) {
 
     enum class Tab { EMOTES, CATEGORIES, SHOP }
+
+    /** Onglets du panneau de droite. */
+    enum class PanelTab { INFOS, SALE, OPTIONS }
+
+    enum class StatusFilter { ALL, DRAFTS, PUBLISHED, NEW, PROMO }
+
+    enum class Sort { CATALOG, RECENT, NAME, PRICE }
+
+    /** Menus déroulants et fenêtres des actions groupées, dessinés au-dessus de l'éditeur. */
+    enum class Menu { STATUS, CATEGORY, SORT, BULK_CATEGORY, BULK_PRICE, BULK_DISCOUNT, BULK_NEW }
 
     /** Fichier importé, pas encore enregistré au catalogue. */
     class Draft(
@@ -100,6 +112,35 @@ class EmoteEditorViewModel(initialSelection: UUID?) {
     var toastSuccess by mutableStateOf(true)
         private set
 
+    // Grille : filtres, tri, sélection pour les actions groupées
+    var panelTab by mutableStateOf(PanelTab.INFOS)
+    var statusFilter by mutableStateOf(StatusFilter.ALL)
+    /** `null` : toutes ; vide : sans catégorie. */
+    var categoryFilter by mutableStateOf<String?>(null)
+    var sort by mutableStateOf(Sort.CATALOG)
+    val selection = mutableStateListOf<UUID>()
+    var confirmBulkDelete by mutableStateOf(false)
+        private set
+    var menu by mutableStateOf<Menu?>(null)
+        private set
+    /** Où ouvrir [menu] : le bouton qui l'a ouvert, en pixels de la fenêtre. */
+    var menuAnchor by mutableStateOf(Rect.Zero)
+        private set
+    /** Où le menu ouvert est dessiné (lu au rendu de l'aperçu 3D, qui passe par-dessus l'interface). */
+    var menuBounds = Rect.Zero
+    var bulkPrice by mutableStateOf("")
+    var bulkPercent by mutableIntStateOf(20)
+    var bulkDays by mutableStateOf("3")
+    var bulkNewDays by mutableStateOf("14")
+
+    // Aperçu
+    var previewPaused by mutableStateOf(false)
+    var previewRestart by mutableIntStateOf(0)
+        private set
+
+    /** Le formulaire tel qu'enregistré : sert à compter les modifications en cours. */
+    private var baseline: Form? = null
+
     // Réglages de la boutique
     var promoPercent by mutableStateOf("")
     var promoDays by mutableStateOf("")
@@ -128,6 +169,10 @@ class EmoteEditorViewModel(initialSelection: UUID?) {
         // Après un enregistrement, le formulaire est relu depuis le catalogue (qui peut arriver avant ou après la réponse).
         val id = selectedId
         if (id != null && form == null && (listing(id) != null || draft(id) != null)) select(id)
+        // Supprimée (d'ici ou d'un autre serveur) : le panneau se ferme, la sélection se nettoie.
+        val current = form
+        if (id != null && current != null && !current.creating && listing(id) == null && draft(id) == null) closePanel()
+        if (selection.isNotEmpty()) selection.removeAll { listing(it) == null }
     }
 
     private fun observe() {
@@ -136,12 +181,64 @@ class EmoteEditorViewModel(initialSelection: UUID?) {
 
     // ─── Données ────────────────────────────────────────────────────────────────
 
+    /** Tout le catalogue (compteurs, statistiques) ; la grille affiche [visibleListings]. */
     val listings: List<EmoteListing>
         get() {
             observe()
-            val needle = normalizeSearch(query)
-            return ClientEmoteCatalog.listings.filter { needle.isEmpty() || normalizeSearch(it.name).contains(needle) }
+            return ClientEmoteCatalog.listings
         }
+
+    /** La grille : recherche (nom, auteur, catégorie), filtres et tri appliqués. */
+    val visibleListings: List<EmoteListing>
+        get() {
+            observe()
+            val now = System.currentTimeMillis()
+            val needle = normalizeSearch(query)
+            val categoryNames = ClientEmoteCatalog.categories.associate { it.id to normalizeSearch(it.name) }
+            val filtered = ClientEmoteCatalog.listings.filter { listing ->
+                val matches = needle.isEmpty() || normalizeSearch(listing.name).contains(needle) ||
+                    normalizeSearch(listing.author).contains(needle) || categoryNames[listing.categoryId]?.contains(needle) == true
+                matches && matchesStatus(listing, statusFilter, now) && when (val category = categoryFilter) {
+                    null -> true
+                    "" -> listing.categoryId == null
+                    else -> listing.categoryId == category
+                }
+            }
+            return when (sort) {
+                Sort.CATALOG -> filtered.sortedWith(compareBy({ it.sortOrder }, { it.addedAtMs }))
+                Sort.RECENT -> filtered.sortedByDescending { it.addedAtMs }
+                Sort.NAME -> filtered.sortedBy { it.name.lowercase() }
+                Sort.PRICE -> filtered.sortedByDescending { if (it.access == EmoteAccess.SHOP) it.price else -1L }
+            }
+        }
+
+    fun matchesStatus(listing: EmoteListing, filter: StatusFilter, now: Long): Boolean = when (filter) {
+        StatusFilter.ALL -> true
+        StatusFilter.DRAFTS -> !listing.published
+        StatusFilter.PUBLISHED -> listing.published
+        StatusFilter.NEW -> listing.isNew(now)
+        StatusFilter.PROMO -> discountOf(listing, now) > 0
+    }
+
+    /** La réduction qu'aura l'émote en vente, même pas encore publiée (la boutique ne compte que les publiées). */
+    fun discountOf(listing: EmoteListing, now: Long): Int {
+        if (listing.access != EmoteAccess.SHOP || listing.price <= 0) return 0
+        val global = if (settings.promoActive(now)) settings.promoPercent else 0
+        return maxOf(global, listing.itemDiscount(now))
+    }
+
+    fun countWith(filter: StatusFilter): Int {
+        val now = System.currentTimeMillis()
+        return listings.count { matchesStatus(it, filter, now) }
+    }
+
+    val hasFilters: Boolean get() = query.isNotBlank() || statusFilter != StatusFilter.ALL || categoryFilter != null
+
+    fun clearFilters() {
+        query = ""
+        statusFilter = StatusFilter.ALL
+        categoryFilter = null
+    }
 
     val categories: List<EmoteCategory> get() = observe().let { ClientEmoteCatalog.categories }
     val settings: EmoteShopSettings get() = observe().let { ClientEmoteCatalog.settings }
@@ -167,6 +264,10 @@ class EmoteEditorViewModel(initialSelection: UUID?) {
     // ─── Sélection et formulaire ──────────────────────────────────────────────────
 
     fun select(id: UUID) {
+        if (selectedId != id) {
+            previewPaused = false
+            previewRestart++
+        }
         selectedId = id
         confirmDelete = false
         val draft = draft(id)
@@ -196,6 +297,42 @@ class EmoteEditorViewModel(initialSelection: UUID?) {
                 newEnabled = listing.isNew(now), newDays = "", published = listing.published,
                 playableWhileMoving = listing.playableWhileMoving
             )
+        }
+        baseline = form
+    }
+
+    fun closePanel() {
+        selectedId = null
+        form = null
+        baseline = null
+        confirmDelete = false
+    }
+
+    /** Modifications pas encore enregistrées dans le formulaire. */
+    val changeCount: Int
+        get() {
+            val current = form ?: return 0
+            val base = baseline ?: return 0
+            return listOf(
+                current.name != base.name, current.description != base.description, current.author != base.author,
+                current.categoryId != base.categoryId, current.rarity != base.rarity, current.access != base.access,
+                current.price != base.price, current.discountPercent != base.discountPercent, current.discountDays.isNotBlank(),
+                current.newEnabled != base.newEnabled, current.newDays.isNotBlank(),
+                current.playableWhileMoving != base.playableWhileMoving, current.pendingFile != null
+            ).count { it }
+        }
+
+    /** Des modifications non enregistrées dans cet onglet du panneau (point ambre sur l'onglet). */
+    fun changedIn(tab: PanelTab): Boolean {
+        val current = form ?: return false
+        val base = baseline ?: return false
+        return when (tab) {
+            PanelTab.INFOS -> current.name != base.name || current.description != base.description || current.author != base.author ||
+                current.categoryId != base.categoryId || current.rarity != base.rarity || current.pendingFile != null
+            PanelTab.SALE -> current.access != base.access || current.price != base.price ||
+                current.discountPercent != base.discountPercent || current.discountDays.isNotBlank()
+            PanelTab.OPTIONS -> current.newEnabled != base.newEnabled || current.newDays.isNotBlank() ||
+                current.playableWhileMoving != base.playableWhileMoving
         }
     }
 
@@ -278,8 +415,9 @@ class EmoteEditorViewModel(initialSelection: UUID?) {
 
     // ─── Enregistrement ───────────────────────────────────────────────────────────
 
-    fun save() {
-        val current = form ?: return
+    /** [publish] : publier (`true`) ou repasser en brouillon (`false`) en même temps ; `null` garde l'état. */
+    fun save(publish: Boolean? = null) {
+        val current = (form ?: return).let { if (publish != null) it.copy(published = publish) else it }
         if (saving) return
         val name = current.name.trim()
         if (name.isEmpty()) return toast(EmotesI18n.t("editor.error.name"), false)
@@ -360,8 +498,93 @@ class EmoteEditorViewModel(initialSelection: UUID?) {
     fun discardDraft() {
         val id = selectedId ?: return
         drafts.removeAll { it.id == id }
-        selectedId = null
-        form = null
+        closePanel()
+    }
+
+    /** Publier ou repasser en brouillon depuis la carte, sans ouvrir le panneau. */
+    fun quickPublish(id: UUID, publish: Boolean) {
+        if (!ClientPlayNetworking.canSend(EmoteEditorActionPayload.TYPE)) return toast(EmotesI18n.t("editor.error.server"), false)
+        ClientPlayNetworking.send(EmoteEditorActionPayload(if (publish) EmoteEditorActionPayload.Action.PUBLISH else EmoteEditorActionPayload.Action.UNPUBLISH, id))
+    }
+
+    // ─── Sélection multiple et actions groupées ───────────────────────────────────
+
+    fun isSelected(id: UUID): Boolean = id in selection
+
+    fun toggleSelection(id: UUID) {
+        if (!selection.remove(id)) selection += id
+        confirmBulkDelete = false
+    }
+
+    fun selectAllVisible() {
+        visibleListings.forEach { if (it.id !in selection) selection += it.id }
+    }
+
+    fun clearSelection() {
+        selection.clear()
+        confirmBulkDelete = false
+        if (menu?.name?.startsWith("BULK") == true) menu = null
+    }
+
+    fun cancelBulkDelete() {
+        confirmBulkDelete = false
+    }
+
+    fun openMenu(next: Menu, anchor: Rect) {
+        if (menu == next) {
+            menu = null
+            return
+        }
+        menu = next
+        menuAnchor = anchor
+        menuBounds = Rect.Zero
+        if (next == Menu.BULK_PRICE) bulkPrice = ""
+    }
+
+    fun closeMenu() {
+        menu = null
+    }
+
+    fun bulk(action: EmoteEditorBulkPayload.Action, categoryId: String = "", price: Long = 0, percent: Int = 0, durationMs: Long = 0) {
+        val ids = selection.toList()
+        if (ids.isEmpty()) return
+        if (action == EmoteEditorBulkPayload.Action.DELETE && !confirmBulkDelete) {
+            confirmBulkDelete = true
+            return
+        }
+        confirmBulkDelete = false
+        if (!ClientPlayNetworking.canSend(EmoteEditorBulkPayload.TYPE)) return toast(EmotesI18n.t("editor.error.server"), false)
+        ClientPlayNetworking.send(EmoteEditorBulkPayload(action, ids, categoryId, price, percent, durationMs))
+        menu = null
+        if (action == EmoteEditorBulkPayload.Action.DELETE) {
+            selection.clear()
+            if (selectedId in ids) closePanel()
+        }
+    }
+
+    fun applyBulkPrice() {
+        val price = bulkPrice.trim().toLongOrNull()
+        if (price == null || price !in 1..EmoteShopSettings.MAX_PRICE) return toast(EmotesI18n.t("editor.error.price"), false)
+        bulk(EmoteEditorBulkPayload.Action.PRICE, price = price)
+    }
+
+    fun applyBulkDiscount(remove: Boolean) {
+        if (remove) return bulk(EmoteEditorBulkPayload.Action.DISCOUNT, percent = 0)
+        val days = bulkDays.trim().toIntOrNull()
+        if (days == null || days !in 1..EmoteShopSettings.MAX_DAYS) return toast(EmotesI18n.t("editor.error.discount_days"), false)
+        bulk(EmoteEditorBulkPayload.Action.DISCOUNT, percent = bulkPercent, durationMs = days * EmoteShopSettings.DAY_MS)
+    }
+
+    fun applyBulkNew(remove: Boolean) {
+        if (remove) return bulk(EmoteEditorBulkPayload.Action.NEW_BADGE, durationMs = 0)
+        val days = bulkNewDays.trim().toIntOrNull()
+        if (days == null || days !in 1..EmoteShopSettings.MAX_DAYS) return toast(EmotesI18n.t("editor.error.new_days"), false)
+        bulk(EmoteEditorBulkPayload.Action.NEW_BADGE, durationMs = days * EmoteShopSettings.DAY_MS)
+    }
+
+    fun restartPreview() {
+        previewPaused = false
+        previewRestart++
     }
 
     fun action(action: EmoteEditorActionPayload.Action) {
@@ -374,8 +597,8 @@ class EmoteEditorViewModel(initialSelection: UUID?) {
         if (!ClientPlayNetworking.canSend(EmoteEditorActionPayload.TYPE)) return toast(EmotesI18n.t("editor.error.server"), false)
         ClientPlayNetworking.send(EmoteEditorActionPayload(action, id))
         if (action == EmoteEditorActionPayload.Action.DELETE) {
-            selectedId = null
-            form = null
+            selection.remove(id)
+            closePanel()
         }
     }
 
@@ -438,6 +661,8 @@ class EmoteEditorViewModel(initialSelection: UUID?) {
         if (!result.success) return
         val id = result.emoteId ?: run {
             loadShopFields()
+            // Action groupée ou réglages : le formulaire ouvert est relu s'il n'a rien en cours.
+            if (form?.creating == false && changeCount == 0) form = null
             return
         }
         if (drafts.removeAll { it.id == id } || form?.pendingFile != null) EmoteIcons.invalidate(id)
@@ -454,6 +679,12 @@ class EmoteEditorViewModel(initialSelection: UUID?) {
 
     fun zoomPreview(scroll: Float) {
         previewZoom = applyPreviewZoom(previewZoom, scroll)
+    }
+
+    fun resetPreviewView() {
+        previewYaw = PREVIEW_DEFAULT_YAW
+        previewPitch = PREVIEW_DEFAULT_PITCH
+        previewZoom = 1f
     }
 
     fun toast(message: String, success: Boolean) {

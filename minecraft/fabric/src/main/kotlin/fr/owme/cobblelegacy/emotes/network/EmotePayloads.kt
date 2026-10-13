@@ -382,6 +382,48 @@ data class EmoteEditorActionPayload(val action: Action, val id: UUID) : CustomPa
     }
 }
 
+/**
+ * Une même modification sur plusieurs émotes (sélection de l'éditeur) : un seul enregistrement et
+ * une seule relecture du catalogue, au lieu d'un aller-retour par émote.
+ */
+data class EmoteEditorBulkPayload(
+    val action: Action,
+    val ids: List<UUID>,
+    /** [Action.CATEGORY] : la catégorie, vide pour « sans catégorie ». */
+    val categoryId: String = "",
+    /** [Action.PRICE] : le prix en cristaux. */
+    val price: Long = 0,
+    /** [Action.DISCOUNT] : la réduction en %, 0 pour la retirer. */
+    val percent: Int = 0,
+    /** [Action.DISCOUNT] et [Action.NEW_BADGE] : la durée, 0 pour retirer. */
+    val durationMs: Long = 0
+) : CustomPacketPayload {
+    enum class Action { PUBLISH, UNPUBLISH, CATEGORY, PRICE, DISCOUNT, NEW_BADGE, DELETE }
+
+    override fun type(): CustomPacketPayload.Type<EmoteEditorBulkPayload> = TYPE
+
+    companion object {
+        const val MAX_IDS = 1024
+
+        val TYPE: CustomPacketPayload.Type<EmoteEditorBulkPayload> = type("editor_bulk")
+        val CODEC: StreamCodec<FriendlyByteBuf, EmoteEditorBulkPayload> = codec({ buf, p ->
+            buf.writeEnum(p.action)
+            buf.writeVarInt(p.ids.size)
+            p.ids.forEach { buf.writeUUID(it) }
+            buf.writeUtf(p.categoryId, 64)
+            buf.writeVarLong(p.price)
+            buf.writeVarInt(p.percent)
+            buf.writeLong(p.durationMs)
+        }, { buf ->
+            val action = buf.readEnum(Action::class.java)
+            val count = buf.readVarInt()
+            require(count in 0..MAX_IDS) { "Trop d'émotes dans une action groupée : $count" }
+            val ids = List(count) { buf.readUUID() }
+            EmoteEditorBulkPayload(action, ids, buf.readUtf(64), buf.readVarLong(), buf.readVarInt(), buf.readLong())
+        })
+    }
+}
+
 /** Gestion des catégories. */
 data class EmoteCategoryEditPayload(val action: Action, val id: String, val name: String) : CustomPacketPayload {
     enum class Action { CREATE, RENAME, DELETE, MOVE_UP, MOVE_DOWN }

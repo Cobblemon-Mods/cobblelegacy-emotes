@@ -6,6 +6,7 @@ import fr.owme.cobblelegacy.emotes.network.EmoteBuyPayload
 import fr.owme.cobblelegacy.emotes.network.EmoteCatalogPayload
 import fr.owme.cobblelegacy.emotes.network.EmoteCategoryEditPayload
 import fr.owme.cobblelegacy.emotes.network.EmoteEditorActionPayload
+import fr.owme.cobblelegacy.emotes.network.EmoteEditorBulkPayload
 import fr.owme.cobblelegacy.emotes.network.EmoteEditorResultPayload
 import fr.owme.cobblelegacy.emotes.network.EmoteEditorSavePayload
 import fr.owme.cobblelegacy.emotes.network.EmoteFileChunkPayload
@@ -42,6 +43,7 @@ object EmoteNetworking {
         c2s.register(EmoteUploadChunkPayload.TYPE, EmoteUploadChunkPayload.CODEC)
         c2s.register(EmoteEditorSavePayload.TYPE, EmoteEditorSavePayload.CODEC)
         c2s.register(EmoteEditorActionPayload.TYPE, EmoteEditorActionPayload.CODEC)
+        c2s.register(EmoteEditorBulkPayload.TYPE, EmoteEditorBulkPayload.CODEC)
         c2s.register(EmoteCategoryEditPayload.TYPE, EmoteCategoryEditPayload.CODEC)
         c2s.register(EmoteShopSettingsPayload.TYPE, EmoteShopSettingsPayload.CODEC)
     }
@@ -80,6 +82,9 @@ object EmoteNetworking {
                 }
                 replyEditor(player, error, message, payload.id)
             }
+        }
+        admin(EmoteEditorBulkPayload.TYPE) { player, payload ->
+            EmoteAdmin.bulk(player.server, payload) { error, summary -> replyEditor(player, error, summary, null) }
         }
         admin(EmoteCategoryEditPayload.TYPE) { player, payload ->
             EmoteAdmin.category(player.server, payload) { error -> replyEditor(player, error, "Catégories enregistrées.", null) }

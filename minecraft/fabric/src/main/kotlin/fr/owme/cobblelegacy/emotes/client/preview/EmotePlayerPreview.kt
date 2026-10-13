@@ -79,7 +79,13 @@ fun EmotePlayerPreview(
     onRotate: ((deltaYaw: Float, deltaPitch: Float) -> Unit)? = null,
     onZoom: ((scrollDelta: Float) -> Unit)? = null,
     fill: Float = ENTITY_FILL,
-    visible: () -> Boolean = { true }
+    visible: () -> Boolean = { true },
+    /** Lecture figée sur la pose en cours. */
+    paused: Boolean = false,
+    /** Change de valeur : l'émote reprend du début. */
+    restartKey: Int = 0,
+    /** Avancement (0 à 1), à chaque image : pour une barre de lecture. */
+    onProgress: ((Float) -> Unit)? = null
 ) {
     val surface = LocalSkiaSurface.current
     val preview = remember { EmotePreview() }
@@ -90,7 +96,17 @@ fun EmotePlayerPreview(
             preview.dispose()
         }
     }
-    SideEffect { preview.show(animation) }
+    SideEffect {
+        preview.show(animation)
+        preview.paused = paused
+    }
+    LaunchedEffect(restartKey) { if (restartKey != 0) preview.restart() }
+    val progressRef = rememberUpdatedState(onProgress)
+    if (onProgress != null) {
+        LaunchedEffect(preview) {
+            while (isActive) withFrameNanos { progressRef.value?.invoke(preview.progress) }
+        }
+    }
 
     var coordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
     val mc = Minecraft.getInstance()
@@ -103,6 +119,7 @@ fun EmotePlayerPreview(
     val zoomRef = rememberUpdatedState(zoom)
     val fillRef = rememberUpdatedState(fill)
     val visibleRef = rememberUpdatedState(visible)
+    val pausedRef = rememberUpdatedState(paused)
 
     LaunchedEffect(coordinates, guiScale) {
         val coords = coordinates ?: return@LaunchedEffect
@@ -130,7 +147,8 @@ fun EmotePlayerPreview(
                     try {
                         renderMannequin(
                             this, entity, x1 + boxWidth / 2f, y1 + boxHeight / 2f, size,
-                            yawRef.value, pitchRef.value, mc.timer.getGameTimeDeltaPartialTick(true)
+                            // En pause, une fraction de tick fixe : sinon la pose oscillerait entre deux ticks.
+                            yawRef.value, pitchRef.value, if (pausedRef.value) 0f else mc.timer.getGameTimeDeltaPartialTick(true)
                         )
                     } catch (_: Exception) {
                     } finally {

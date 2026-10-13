@@ -39,7 +39,11 @@ interface EmoteStorage {
 
     /** Crée ou remplace l'émote ; [file] (déjà vérifié) est rangé avec si non nul. */
     fun saveListing(listing: EmoteListing, file: ByteArray?, author: UUID?): CompletableFuture<Boolean>
-    fun deleteListing(id: UUID): CompletableFuture<Boolean>
+
+    /** Remplace plusieurs émotes d'un coup, sans toucher à leurs fichiers (actions groupées). */
+    fun saveListings(listings: List<EmoteListing>): CompletableFuture<Boolean>
+    fun deleteListing(id: UUID): CompletableFuture<Boolean> = deleteListings(listOf(id))
+    fun deleteListings(ids: Collection<UUID>): CompletableFuture<Boolean>
     fun saveSortOrders(orders: Map<UUID, Int>): CompletableFuture<Boolean>
     fun setPublished(ids: Collection<UUID>, published: Boolean): CompletableFuture<Boolean>
 

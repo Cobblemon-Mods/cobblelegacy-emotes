@@ -254,43 +254,7 @@ class SqlEmoteStorage(private val settings: DatabaseSettings) : EmoteStorage {
                         statement.executeUpdate()
                     }
                 }
-                connection.prepareStatement(
-                    """
-                    INSERT INTO ${PREFIX}catalog (id, name, description, author, category_id, rarity, access, price,
-                        discount_percent, discount_ends_at, published, new_until, sort_order, file_sha256, file_size,
-                        duration_ticks, loops, has_icon, added_at, created_by, playable_while_moving)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ON DUPLICATE KEY UPDATE name = VALUES(name), description = VALUES(description), author = VALUES(author),
-                        category_id = VALUES(category_id), rarity = VALUES(rarity), access = VALUES(access), price = VALUES(price),
-                        discount_percent = VALUES(discount_percent), discount_ends_at = VALUES(discount_ends_at),
-                        published = VALUES(published), new_until = VALUES(new_until), sort_order = VALUES(sort_order),
-                        file_sha256 = VALUES(file_sha256), file_size = VALUES(file_size), duration_ticks = VALUES(duration_ticks),
-                        loops = VALUES(loops), has_icon = VALUES(has_icon), playable_while_moving = VALUES(playable_while_moving)
-                    """.trimIndent()
-                ).use { statement ->
-                    statement.setString(1, listing.id.toString())
-                    statement.setString(2, listing.name)
-                    statement.setString(3, listing.description)
-                    statement.setString(4, listing.author)
-                    statement.setString(5, listing.categoryId)
-                    statement.setString(6, listing.rarity.key)
-                    statement.setString(7, listing.access.name)
-                    statement.setLong(8, listing.price)
-                    statement.setInt(9, listing.discountPercent)
-                    statement.setLong(10, listing.discountEndsAtMs)
-                    statement.setBoolean(11, listing.published)
-                    statement.setLong(12, listing.newUntilMs)
-                    statement.setInt(13, listing.sortOrder)
-                    statement.setString(14, listing.fileSha256)
-                    statement.setInt(15, listing.fileSize)
-                    statement.setInt(16, listing.durationTicks)
-                    statement.setBoolean(17, listing.loops)
-                    statement.setBoolean(18, listing.hasIcon)
-                    statement.setLong(19, listing.addedAtMs)
-                    statement.setString(20, author?.toString())
-                    statement.setBoolean(21, listing.playableWhileMoving)
-                    statement.executeUpdate()
-                }
+                upsert(connection, listOf(listing), author)
                 deleteOrphanFiles(connection)
                 bumpRevision(connection)
             }
@@ -298,12 +262,69 @@ class SqlEmoteStorage(private val settings: DatabaseSettings) : EmoteStorage {
         }
     }
 
-    override fun deleteListing(id: UUID): CompletableFuture<Boolean> = submit {
+    override fun saveListings(listings: List<EmoteListing>): CompletableFuture<Boolean> = submit {
+        withConnection(false) { connection ->
+            connection.transaction {
+                upsert(connection, listings, null)
+                bumpRevision(connection)
+            }
+            true
+        }
+    }
+
+    /** Crée ou remplace des émotes ; l'auteur n'est noté qu'à la création. */
+    private fun upsert(connection: Connection, listings: List<EmoteListing>, author: UUID?) {
+        connection.prepareStatement(
+            """
+            INSERT INTO ${PREFIX}catalog (id, name, description, author, category_id, rarity, access, price,
+                discount_percent, discount_ends_at, published, new_until, sort_order, file_sha256, file_size,
+                duration_ticks, loops, has_icon, added_at, created_by, playable_while_moving)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE name = VALUES(name), description = VALUES(description), author = VALUES(author),
+                category_id = VALUES(category_id), rarity = VALUES(rarity), access = VALUES(access), price = VALUES(price),
+                discount_percent = VALUES(discount_percent), discount_ends_at = VALUES(discount_ends_at),
+                published = VALUES(published), new_until = VALUES(new_until), sort_order = VALUES(sort_order),
+                file_sha256 = VALUES(file_sha256), file_size = VALUES(file_size), duration_ticks = VALUES(duration_ticks),
+                loops = VALUES(loops), has_icon = VALUES(has_icon), playable_while_moving = VALUES(playable_while_moving)
+            """.trimIndent()
+        ).use { statement ->
+            listings.forEach { listing ->
+                statement.setString(1, listing.id.toString())
+                statement.setString(2, listing.name)
+                statement.setString(3, listing.description)
+                statement.setString(4, listing.author)
+                statement.setString(5, listing.categoryId)
+                statement.setString(6, listing.rarity.key)
+                statement.setString(7, listing.access.name)
+                statement.setLong(8, listing.price)
+                statement.setInt(9, listing.discountPercent)
+                statement.setLong(10, listing.discountEndsAtMs)
+                statement.setBoolean(11, listing.published)
+                statement.setLong(12, listing.newUntilMs)
+                statement.setInt(13, listing.sortOrder)
+                statement.setString(14, listing.fileSha256)
+                statement.setInt(15, listing.fileSize)
+                statement.setInt(16, listing.durationTicks)
+                statement.setBoolean(17, listing.loops)
+                statement.setBoolean(18, listing.hasIcon)
+                statement.setLong(19, listing.addedAtMs)
+                statement.setString(20, author?.toString())
+                statement.setBoolean(21, listing.playableWhileMoving)
+                statement.addBatch()
+            }
+            statement.executeBatch()
+        }
+    }
+
+    override fun deleteListings(ids: Collection<UUID>): CompletableFuture<Boolean> = submit {
         withConnection(false) { connection ->
             connection.transaction {
                 connection.prepareStatement("DELETE FROM ${PREFIX}catalog WHERE id = ?").use { statement ->
-                    statement.setString(1, id.toString())
-                    statement.executeUpdate()
+                    ids.forEach { id ->
+                        statement.setString(1, id.toString())
+                        statement.addBatch()
+                    }
+                    statement.executeBatch()
                 }
                 // Les émotes possédées restent : remise au catalogue, l'émote revient à ses propriétaires.
                 deleteOrphanFiles(connection)
