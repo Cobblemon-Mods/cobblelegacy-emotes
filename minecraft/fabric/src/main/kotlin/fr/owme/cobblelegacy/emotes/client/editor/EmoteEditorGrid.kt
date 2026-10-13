@@ -87,7 +87,6 @@ private fun CatalogToolbar(vm: EmoteEditorViewModel) {
         ) {
             SearchField(vm.query, { vm.query = it }, EmotesI18n.t("editor.search.placeholder"), Amber, Modifier.width(180.dp))
             MenuButton(vm, Menu.STATUS, EmotesI18n.t("editor.filter.status"), statusLabel(vm.statusFilter), vm.statusFilter != StatusFilter.ALL)
-            MenuButton(vm, Menu.CATEGORY, EmotesI18n.t("editor.filter.category"), categoryLabel(vm), vm.categoryFilter != null)
             MenuButton(vm, Menu.SORT, EmotesI18n.t("editor.filter.sort"), sortLabel(vm.sort), false)
             if (vm.hasFilters) {
                 Text(
@@ -128,12 +127,6 @@ private fun MenuButton(vm: EmoteEditorViewModel, menu: Menu, label: String, valu
 private fun statusLabel(filter: StatusFilter): String = EmotesI18n.t("editor.status_filter." + filter.name.lowercase())
 
 private fun sortLabel(sort: Sort): String = EmotesI18n.t("editor.sort." + sort.name.lowercase())
-
-private fun categoryLabel(vm: EmoteEditorViewModel): String = when (val id = vm.categoryFilter) {
-    null -> EmotesI18n.t("editor.filter.all_categories")
-    "" -> EmotesI18n.t("editor.filter.no_category")
-    else -> vm.categories.firstOrNull { it.id == id }?.name ?: EmotesI18n.t("editor.filter.all_categories")
-}
 
 // ─── Grille ─────────────────────────────────────────────────────────────────────
 
@@ -422,7 +415,6 @@ private fun BulkBar(vm: EmoteEditorViewModel, modifier: Modifier) {
                 QuickButton(EmotesI18n.t("editor.bulk.publish"), EmotesTheme.ShopAccent, filled = true) { vm.bulk(EmoteEditorBulkPayload.Action.PUBLISH) }
                 QuickButton(EmotesI18n.t("editor.bulk.unpublish"), EmotesTheme.Warning, filled = false) { vm.bulk(EmoteEditorBulkPayload.Action.UNPUBLISH) }
             }
-            BulkMenuButton(vm, Menu.BULK_CATEGORY, EmotesI18n.t("editor.bulk.category"), EmotesTheme.TextPrimary)
             BulkMenuButton(vm, Menu.BULK_PRICE, EmotesI18n.t("editor.bulk.price"), EmotesTheme.TextPrimary)
             BulkMenuButton(vm, Menu.BULK_DISCOUNT, EmotesI18n.t("editor.bulk.discount"), EmotesTheme.Promo)
             BulkMenuButton(vm, Menu.BULK_NEW, EmotesI18n.t("editor.bulk.new"), EmotesTheme.New)
@@ -508,35 +500,11 @@ internal fun EditorMenuLayer(vm: EmoteEditorViewModel) {
                         vm.closeMenu()
                     }
                 }
-                Menu.CATEGORY -> {
-                    MenuItem(EmotesI18n.t("editor.filter.all_categories"), vm.listings.size.toString(), vm.categoryFilter == null) {
-                        vm.categoryFilter = null
-                        vm.closeMenu()
-                    }
-                    MenuItem(EmotesI18n.t("editor.filter.no_category"), vm.listings.count { it.categoryId == null }.toString(), vm.categoryFilter == "") {
-                        vm.categoryFilter = ""
-                        vm.closeMenu()
-                    }
-                    vm.categories.forEach { category ->
-                        MenuItem(category.name, vm.listings.count { it.categoryId == category.id }.toString(), vm.categoryFilter == category.id) {
-                            vm.categoryFilter = category.id
-                            vm.closeMenu()
-                        }
-                    }
-                }
                 Menu.SORT -> Sort.entries.forEach { sort ->
                     MenuItem(sortLabel(sort), null, vm.sort == sort) {
                         vm.sort = sort
                         vm.closeMenu()
                     }
-                }
-                Menu.BULK_CATEGORY -> {
-                    MenuTitle(EmotesI18n.t("editor.bulk.category.title", vm.selection.size))
-                    MenuItem(EmotesI18n.t("editor.filter.no_category"), null, false) { vm.bulk(EmoteEditorBulkPayload.Action.CATEGORY, categoryId = "") }
-                    vm.categories.forEach { category ->
-                        MenuItem(category.name, null, false) { vm.bulk(EmoteEditorBulkPayload.Action.CATEGORY, categoryId = category.id) }
-                    }
-                    if (vm.categories.isEmpty()) MenuHint(EmotesI18n.t("editor.bulk.category.none"))
                 }
                 Menu.BULK_PRICE -> {
                     MenuTitle(EmotesI18n.t("editor.bulk.price.title", vm.selection.size))

@@ -83,6 +83,15 @@ class FileEmoteStorage(private val directory: Path) : EmoteStorage {
         true
     }
 
+    override fun replaceFile(id: UUID, expectedSha: String, sha: String, file: ByteArray): CompletableFuture<Boolean> = submit(false) {
+        val listing = listings[id]?.takeIf { it.fileSha256 == expectedSha } ?: return@submit false
+        val target = fileOf(sha) ?: return@submit false
+        if (!Files.exists(target)) writeAtomically(target, file)
+        listings[id] = listing.copy(fileSha256 = sha, fileSize = file.size)
+        changed()
+        true
+    }
+
     override fun saveListings(listings: List<EmoteListing>): CompletableFuture<Boolean> = submit(false) {
         listings.forEach { this.listings[it.id] = it }
         changed()

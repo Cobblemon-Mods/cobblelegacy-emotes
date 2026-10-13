@@ -1,6 +1,8 @@
 package fr.owme.cobblelegacy.emotes.client.ui.collection
 
 import androidx.compose.foundation.*
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -32,6 +34,7 @@ import fr.owme.cobblelegacy.emotes.catalog.EmoteAccess
 import fr.owme.cobblelegacy.emotes.catalog.EmoteRarity
 import fr.owme.cobblelegacy.emotes.client.ClientEmoteCatalog
 import fr.owme.cobblelegacy.emotes.client.EmoteEntry
+import fr.owme.cobblelegacy.emotes.client.EmoteSeen
 import fr.owme.cobblelegacy.emotes.client.EmoteSource
 import fr.owme.cobblelegacy.emotes.client.WheelConfig
 import fr.owme.cobblelegacy.emotes.client.preview.EmotePlayerPreview
@@ -243,8 +246,8 @@ private fun Sidebar(vm: CollectionViewModel) {
                 FilterButton(EmotesI18n.t("collection.filter.locked"), Icons.Outlined.Lock, vm.filter == CollectionViewModel.Filter.LOCKED, EmotesTheme.Warning, vm.entries.size - vm.unlockedCount) {
                     vm.selectFilter(CollectionViewModel.Filter.LOCKED)
                 }
-                val newCount = vm.entries.count { it.isNew }
-                if (newCount > 0) {
+                val newCount = vm.newCount
+                if (newCount > 0 || vm.filter == CollectionViewModel.Filter.NEW) {
                     FilterButton(EmotesI18n.t("collection.filter.new"), Icons.Outlined.NewReleases, vm.filter == CollectionViewModel.Filter.NEW, EmotesTheme.New, newCount) {
                         vm.selectFilter(CollectionViewModel.Filter.NEW)
                     }
@@ -252,16 +255,12 @@ private fun Sidebar(vm: CollectionViewModel) {
             }
         }
 
-        val categories = vm.categories
         val hasBase = vm.entries.any { it.source == EmoteSource.BUILTIN }
         val hasLocal = vm.entries.any { it.source == EmoteSource.LOCAL }
-        if (categories.isNotEmpty() || hasBase || hasLocal) {
+        if (hasBase || hasLocal) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                SectionLabel(EmotesI18n.t("collection.section.categories"))
+                SectionLabel(EmotesI18n.t("collection.section.source"))
                 Spacer(Modifier.height(2.dp))
-                categories.forEach { category ->
-                    FilterButton(category.name, Icons.Outlined.Folder, vm.category == category.id, accent, vm.countIn(category.id)) { vm.toggleCategory(category.id) }
-                }
                 if (hasBase) {
                     FilterButton(EmotesI18n.t("collection.category.base"), Icons.Outlined.Star, vm.category == CollectionViewModel.BASE, accent, vm.countIn(CollectionViewModel.BASE)) {
                         vm.toggleCategory(CollectionViewModel.BASE)
@@ -345,11 +344,16 @@ private fun EmoteCard(vm: CollectionViewModel, entry: EmoteEntry, modifier: Modi
     val selected = vm.selectedId == entry.id
     val shape = RoundedCornerShape(12.dp)
     val inWheel = vm.wheelPositions(entry.id).isNotEmpty()
+    // Survolée : son badge NEW s'en va.
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    LaunchedEffect(hovered) { if (hovered) vm.markSeen(entry) }
     Column(
         modifier = modifier
             .clip(shape)
             .background(if (selected) rarity.color.copy(alpha = 0.06f) else EmotesTheme.SurfaceTiny)
             .border(1.dp, if (selected) rarity.color.copy(alpha = 0.3f) else EmotesTheme.BorderSubtle, shape)
+            .hoverable(interaction)
             .clickable {
                 val target = vm.target
                 if (target != null && entry.unlocked) {
@@ -369,7 +373,7 @@ private fun EmoteCard(vm: CollectionViewModel, entry: EmoteEntry, modifier: Modi
                 else -> Icon(Icons.Outlined.CheckCircle, null, tint = EmotesTheme.StatusActive.copy(alpha = 0.7f), modifier = Modifier.size(11.dp))
             }
             Spacer(Modifier.weight(1f))
-            if (entry.isNew) {
+            if (EmoteSeen.isNew(entry)) {
                 NewBadge()
                 Spacer(Modifier.width(4.dp))
             }
@@ -485,8 +489,7 @@ private fun Details(vm: CollectionViewModel, entry: EmoteEntry) {
         Text(entry.name, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color(0xFFF0F0F0), maxLines = 1, overflow = TextOverflow.Ellipsis)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
             if (entry.source == EmoteSource.CATALOG) RarityChip(entry.rarity)
-            if (entry.isNew) NewBadge(fontSize = 8.sp)
-            ClientEmoteCatalog.category(entry.categoryId)?.let { Badge(it.name.uppercase(), EmotesTheme.TextSoft) }
+            if (EmoteSeen.isNew(entry)) NewBadge(fontSize = 8.sp)
         }
         if (entry.description.isNotBlank()) {
             Text(entry.description, fontSize = 9.sp, color = EmotesTheme.TextSubtle, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)

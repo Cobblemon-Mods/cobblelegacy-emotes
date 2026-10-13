@@ -4,9 +4,11 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import fr.owme.cobblelegacy.emotes.EmoteFiles
+import fr.owme.cobblelegacy.emotes.EmoteIconFiles
 import io.github.kosmx.emotes.main.EmoteHolder
 import net.minecraft.Util
 import net.minecraft.client.Minecraft
+import org.jetbrains.skia.EncodedImageFormat
 import org.jetbrains.skia.Image
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
@@ -37,6 +39,18 @@ object EmoteIcons {
 
     /** Pour l'éditeur : icône d'un fichier pas encore au catalogue. */
     fun decode(bytes: ByteArray): ImageBitmap? = runCatching { Image.makeFromEncoded(bytes).toComposeImageBitmap() }.getOrNull()
+
+    /**
+     * Icône légère ([EmoteIconFiles.light]), avec Skia en secours pour les formats que Java ne lit pas
+     * (WebP…) : l'image est d'abord réécrite en PNG. Hors du thread de rendu de préférence.
+     */
+    fun light(bytes: ByteArray): ByteArray? = EmoteIconFiles.light(bytes) ?: skiaPng(bytes)?.let(EmoteIconFiles::light)
+
+    private fun skiaPng(bytes: ByteArray): ByteArray? = try {
+        Image.makeFromEncoded(bytes).use { it.encodeToData(EncodedImageFormat.PNG)?.bytes }
+    } catch (e: Exception) {
+        null
+    }
 
     fun invalidate(id: UUID) {
         images.remove(id)

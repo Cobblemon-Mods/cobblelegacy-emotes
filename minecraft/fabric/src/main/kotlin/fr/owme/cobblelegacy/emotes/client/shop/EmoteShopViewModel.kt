@@ -6,7 +6,6 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import fr.owme.cobblelegacy.emotes.catalog.EmoteCategory
 import fr.owme.cobblelegacy.emotes.catalog.EmoteListing
 import fr.owme.cobblelegacy.emotes.client.ClientEmoteCatalog
 import fr.owme.cobblelegacy.emotes.client.EmoteClientEvents
@@ -27,18 +26,9 @@ import java.util.UUID
 /** État de la boutique d'émotes (onglet du Pokématos ou écran à part). */
 class EmoteShopViewModel(private val host: () -> EmoteShopHost, initialEmote: UUID?) {
 
-    enum class Mode { CATEGORIES, ALL }
-
-    /** Une catégorie de la boutique, avec ses émotes publiées (`id` vide : « Autres »). */
-    data class ShopCategory(val id: String, val name: String, val entries: List<EmoteEntry>)
-
     data class Feedback(val message: String, val success: Boolean, val target: UUID?)
 
-    var mode by mutableStateOf(Mode.CATEGORIES)
-        private set
     var query by mutableStateOf("")
-        private set
-    var openCategoryId by mutableStateOf<String?>(null)
         private set
     var selectedId by mutableStateOf(initialEmote)
         private set
@@ -101,36 +91,26 @@ class EmoteShopViewModel(private val host: () -> EmoteShopHost, initialEmote: UU
             return EmoteLibrary.entries().filter { it.listing?.published == true }
         }
 
-    val newEntries: List<EmoteEntry> get() = entries.filter { it.listing!!.isNew(nowMs) }
-
-    val categories: List<ShopCategory>
-        get() {
-            val all = entries
-            val result = ClientEmoteCatalog.categories.mapNotNull { category: EmoteCategory ->
-                val inside = all.filter { it.categoryId == category.id }
-                if (inside.isEmpty()) null else ShopCategory(category.id, category.name, inside)
-            }.toMutableList()
-            val others = all.filter { entry -> entry.categoryId == null || ClientEmoteCatalog.categories.none { it.id == entry.categoryId } }
-            if (others.isNotEmpty()) result += ShopCategory("", EmotesI18n.t("shop.category.others"), others)
-            return result
-        }
-
-    val openCategory: ShopCategory? get() = openCategoryId?.let { id -> categories.firstOrNull { it.id == id } }
+    val newCount: Int get() = entries.count { it.isNew }
 
     val searching: Boolean get() = query.isNotBlank()
 
+    /**
+     * Toutes les émotes en une liste : les nouveautés en tête (la plus récente d'abord) tant qu'elles ont
+     * le badge NEW, puis celles à vendre, les gratuites et exclusives, les possédées à la fin ; à égalité,
+     * l'ordre du catalogue.
+     */
     val visibleEntries: List<EmoteEntry>
         get() {
-            val base = when {
-                searching -> {
-                    val needle = normalizeSearch(query)
-                    entries.filter { normalizeSearch(it.name).contains(needle) || normalizeSearch(it.author).contains(needle) }
-                }
-                mode == Mode.ALL -> entries
-                else -> openCategory?.entries ?: emptyList()
+            val base = if (searching) {
+                val needle = normalizeSearch(query)
+                entries.filter { normalizeSearch(it.name).contains(needle) || normalizeSearch(it.author).contains(needle) }
+            } else {
+                entries
             }
-            // À vendre d'abord (nouveautés en tête), puis les gratuites, exclusives et possédées.
-            return base.sortedWith(compareBy({ isOwned(it) }, { priceOf(it) == null }, { !it.isNew }))
+            return base.sortedWith(
+                compareBy<EmoteEntry>({ !it.isNew }, { if (it.isNew) -(it.listing?.addedAtMs ?: 0L) else 0L }, { isOwned(it) }, { priceOf(it) == null })
+            )
         }
 
     val selected: EmoteEntry? get() = selectedId?.let { id -> entries.firstOrNull { it.id == id } }
@@ -149,16 +129,7 @@ class EmoteShopViewModel(private val host: () -> EmoteShopHost, initialEmote: UU
     val promoActive: Boolean get() = settings.promoActive(nowMs)
     val promoRemainingMs: Long get() = (settings.promoEndsAtMs - nowMs).coerceAtLeast(0)
 
-    fun minPriceOf(category: ShopCategory): Long? = category.entries.filter { !isOwned(it) }.mapNotNull { priceOf(it) }.minOrNull()
-
-    fun categoryName(entry: EmoteEntry): String? = ClientEmoteCatalog.category(entry.categoryId)?.name
-
     // ─── Navigation ──────────────────────────────────────────────────────────────
-
-    fun selectMode(value: Mode) {
-        mode = value
-        openCategoryId = null
-    }
 
     fun updateQuery(value: String) {
         query = value.take(40)
@@ -166,14 +137,6 @@ class EmoteShopViewModel(private val host: () -> EmoteShopHost, initialEmote: UU
 
     fun clearQuery() {
         query = ""
-    }
-
-    fun openCategory(id: String) {
-        openCategoryId = id
-    }
-
-    fun closeCategory() {
-        openCategoryId = null
     }
 
     fun open(entry: EmoteEntry) {

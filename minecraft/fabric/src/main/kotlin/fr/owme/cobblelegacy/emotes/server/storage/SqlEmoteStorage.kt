@@ -272,6 +272,31 @@ class SqlEmoteStorage(private val settings: DatabaseSettings) : EmoteStorage {
         }
     }
 
+    override fun replaceFile(id: UUID, expectedSha: String, sha: String, file: ByteArray): CompletableFuture<Boolean> = submit {
+        withConnection(false) { connection ->
+            var replaced = false
+            connection.transaction {
+                connection.prepareStatement("INSERT IGNORE INTO ${PREFIX}files (sha256, data) VALUES (?, ?)").use { statement ->
+                    statement.setString(1, sha)
+                    statement.setBytes(2, file)
+                    statement.executeUpdate()
+                }
+                replaced = connection.prepareStatement(
+                    "UPDATE ${PREFIX}catalog SET file_sha256 = ?, file_size = ? WHERE id = ? AND file_sha256 = ?"
+                ).use { statement ->
+                    statement.setString(1, sha)
+                    statement.setInt(2, file.size)
+                    statement.setString(3, id.toString())
+                    statement.setString(4, expectedSha)
+                    statement.executeUpdate() > 0
+                }
+                deleteOrphanFiles(connection)
+                if (replaced) bumpRevision(connection)
+            }
+            replaced
+        }
+    }
+
     /** Crée ou remplace des émotes ; l'auteur n'est noté qu'à la création. */
     private fun upsert(connection: Connection, listings: List<EmoteListing>, author: UUID?) {
         connection.prepareStatement(

@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import fr.owme.cobblelegacy.emotes.client.EmoteEntry
+import fr.owme.cobblelegacy.emotes.client.EmoteSeen
 import fr.owme.cobblelegacy.emotes.client.ui.EmoteThumbnail
 import fr.owme.cobblelegacy.emotes.client.ui.EmotesTheme
 import fr.owme.cobblelegacy.emotes.client.ui.NewBadge
@@ -232,7 +233,7 @@ private fun SlotContent(slot: WheelSlot, iconSize: Dp, labelWidth: Dp, hovered: 
                 EmoteThumbnail(entry, Modifier.size(iconSize), locked = slot.locked, glow = false)
                 if (slot.locked) {
                     Icon(Icons.Outlined.Lock, null, tint = EmotesTheme.TextSoft, modifier = Modifier.size(iconSize * 0.3f))
-                } else if (entry.isNew && !compact) {
+                } else if (EmoteSeen.isNew(entry) && !compact) {
                     NewBadge(Modifier.offset(x = 6.dp, y = (-4).dp), fontSize = 6.sp)
                 }
             }

@@ -398,7 +398,7 @@ data class EmoteEditorBulkPayload(
     /** [Action.DISCOUNT] et [Action.NEW_BADGE] : la durée, 0 pour retirer. */
     val durationMs: Long = 0
 ) : CustomPacketPayload {
-    enum class Action { PUBLISH, UNPUBLISH, CATEGORY, PRICE, DISCOUNT, NEW_BADGE, DELETE }
+    enum class Action { PUBLISH, UNPUBLISH, CATEGORY, PRICE, DISCOUNT, NEW_BADGE, DELETE, SHRINK_ICONS }
 
     override fun type(): CustomPacketPayload.Type<EmoteEditorBulkPayload> = TYPE
 

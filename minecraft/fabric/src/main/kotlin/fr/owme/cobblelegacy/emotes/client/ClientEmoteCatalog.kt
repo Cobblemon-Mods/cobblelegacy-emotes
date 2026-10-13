@@ -71,11 +71,18 @@ object ClientEmoteCatalog {
         allowsLocal = payload.allowsLocal
         ClientEmoteFiles.sync(listings)
         markChanged()
+        EmoteSeen.load()
     }
+
+    /** Les possessions du joueur sont arrivées au moins une fois depuis la connexion. */
+    var ownedReceived = false
+        private set
 
     fun applyOwned(owned: Set<UUID>) {
         this.owned = owned
+        ownedReceived = true
         markChanged()
+        EmoteSeen.load()
     }
 
     fun category(id: String?): EmoteCategory? = id?.let { wanted -> categories.firstOrNull { it.id == wanted } }
@@ -92,6 +99,8 @@ object ClientEmoteCatalog {
         playsAll = false
         allowsLocal = true
         owned = emptySet()
+        ownedReceived = false
+        EmoteSeen.clear()
         balance = -1L
         markChanged()
     }

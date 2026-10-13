@@ -10,8 +10,8 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.ImageBitmap
 import dev.kosmx.playerAnim.core.data.KeyframeAnimation
 import fr.owme.cobblelegacy.emotes.EmoteFiles
+import fr.owme.cobblelegacy.emotes.EmoteIconFiles
 import fr.owme.cobblelegacy.emotes.catalog.EmoteAccess
-import fr.owme.cobblelegacy.emotes.catalog.EmoteCategory
 import fr.owme.cobblelegacy.emotes.catalog.EmoteListing
 import fr.owme.cobblelegacy.emotes.catalog.EmoteRarity
 import fr.owme.cobblelegacy.emotes.catalog.EmoteShopSettings
@@ -24,7 +24,6 @@ import fr.owme.cobblelegacy.emotes.client.preview.clampPreviewPitch
 import fr.owme.cobblelegacy.emotes.client.ui.EmoteIcons
 import fr.owme.cobblelegacy.emotes.client.ui.EmotesI18n
 import fr.owme.cobblelegacy.emotes.client.ui.normalizeSearch
-import fr.owme.cobblelegacy.emotes.network.EmoteCategoryEditPayload
 import fr.owme.cobblelegacy.emotes.network.EmoteEditorActionPayload
 import fr.owme.cobblelegacy.emotes.network.EmoteEditorBulkPayload
 import fr.owme.cobblelegacy.emotes.network.EmoteEditorResultPayload
@@ -32,14 +31,17 @@ import fr.owme.cobblelegacy.emotes.network.EmoteEditorSavePayload
 import fr.owme.cobblelegacy.emotes.network.EmoteShopSettingsPayload
 import io.github.kosmx.emotes.main.EmoteHolder
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking
+import net.minecraft.Util
+import net.minecraft.client.Minecraft
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.UUID
+import java.util.concurrent.CompletableFuture
 
 /** État de l'éditeur du catalogue d'émotes (administrateurs). */
 class EmoteEditorViewModel(initialSelection: UUID?) {
 
-    enum class Tab { EMOTES, CATEGORIES, SHOP }
+    enum class Tab { EMOTES, SHOP }
 
     /** Onglets du panneau de droite. */
     enum class PanelTab { INFOS, SALE, OPTIONS }
@@ -49,7 +51,7 @@ class EmoteEditorViewModel(initialSelection: UUID?) {
     enum class Sort { CATALOG, RECENT, NAME, PRICE }
 
     /** Menus déroulants et fenêtres des actions groupées, dessinés au-dessus de l'éditeur. */
-    enum class Menu { STATUS, CATEGORY, SORT, BULK_CATEGORY, BULK_PRICE, BULK_DISCOUNT, BULK_NEW }
+    enum class Menu { STATUS, SORT, BULK_PRICE, BULK_DISCOUNT, BULK_NEW }
 
     /** Fichier importé, pas encore enregistré au catalogue. */
     class Draft(
@@ -115,8 +117,6 @@ class EmoteEditorViewModel(initialSelection: UUID?) {
     // Grille : filtres, tri, sélection pour les actions groupées
     var panelTab by mutableStateOf(PanelTab.INFOS)
     var statusFilter by mutableStateOf(StatusFilter.ALL)
-    /** `null` : toutes ; vide : sans catégorie. */
-    var categoryFilter by mutableStateOf<String?>(null)
     var sort by mutableStateOf(Sort.CATALOG)
     val selection = mutableStateListOf<UUID>()
     var confirmBulkDelete by mutableStateOf(false)
@@ -145,10 +145,9 @@ class EmoteEditorViewModel(initialSelection: UUID?) {
     var promoPercent by mutableStateOf("")
     var promoDays by mutableStateOf("")
     var newDaysSetting by mutableStateOf("")
-    var newCategoryName by mutableStateOf("")
-    var renaming by mutableStateOf<String?>(null)
-    var renameText by mutableStateOf("")
-    var confirmDeleteCategory by mutableStateOf<String?>(null)
+    /** Allègement des icônes en cours sur le serveur. */
+    var shrinking by mutableStateOf(false)
+        private set
 
     private var revision by mutableIntStateOf(-1)
     private var batchRemaining = 0
@@ -188,21 +187,15 @@ class EmoteEditorViewModel(initialSelection: UUID?) {
             return ClientEmoteCatalog.listings
         }
 
-    /** La grille : recherche (nom, auteur, catégorie), filtres et tri appliqués. */
+    /** La grille : recherche (nom, auteur), filtres et tri appliqués. */
     val visibleListings: List<EmoteListing>
         get() {
             observe()
             val now = System.currentTimeMillis()
             val needle = normalizeSearch(query)
-            val categoryNames = ClientEmoteCatalog.categories.associate { it.id to normalizeSearch(it.name) }
             val filtered = ClientEmoteCatalog.listings.filter { listing ->
-                val matches = needle.isEmpty() || normalizeSearch(listing.name).contains(needle) ||
-                    normalizeSearch(listing.author).contains(needle) || categoryNames[listing.categoryId]?.contains(needle) == true
-                matches && matchesStatus(listing, statusFilter, now) && when (val category = categoryFilter) {
-                    null -> true
-                    "" -> listing.categoryId == null
-                    else -> listing.categoryId == category
-                }
+                val matches = needle.isEmpty() || normalizeSearch(listing.name).contains(needle) || normalizeSearch(listing.author).contains(needle)
+                matches && matchesStatus(listing, statusFilter, now)
             }
             return when (sort) {
                 Sort.CATALOG -> filtered.sortedWith(compareBy({ it.sortOrder }, { it.addedAtMs }))
@@ -232,15 +225,12 @@ class EmoteEditorViewModel(initialSelection: UUID?) {
         return listings.count { matchesStatus(it, filter, now) }
     }
 
-    val hasFilters: Boolean get() = query.isNotBlank() || statusFilter != StatusFilter.ALL || categoryFilter != null
+    val hasFilters: Boolean get() = query.isNotBlank() || statusFilter != StatusFilter.ALL
 
     fun clearFilters() {
         query = ""
         statusFilter = StatusFilter.ALL
-        categoryFilter = null
     }
-
-    val categories: List<EmoteCategory> get() = observe().let { ClientEmoteCatalog.categories }
     val settings: EmoteShopSettings get() = observe().let { ClientEmoteCatalog.settings }
 
     fun listing(id: UUID): EmoteListing? = ClientEmoteCatalog.byId[id]
@@ -343,18 +333,36 @@ class EmoteEditorViewModel(initialSelection: UUID?) {
 
     // ─── Import de fichiers ────────────────────────────────────────────────────────
 
-    /** Fichiers choisis ou glissés sur la fenêtre : `.emotecraft`/`.json` deviennent des brouillons, un `.png` l'icône de l'émote choisie. */
+    /** Lecture et allègement des fichiers importés en cours (hors du thread du jeu). */
+    var importing by mutableStateOf(false)
+        private set
+
+    /**
+     * Fichiers choisis ou glissés sur la fenêtre : `.emotecraft`/`.json` deviennent des brouillons, une
+     * image (PNG, JPG, WebP…) devient l'icône de l'émote choisie. Les icônes sont allégées au passage.
+     */
     fun importFiles(paths: List<Path>) {
         val emotes = paths.filter { EmoteFiles.extensionOf(it.fileName.toString()) in EmoteFiles.IMPORT_EXTENSIONS }
-        val images = paths.filter { EmoteFiles.extensionOf(it.fileName.toString()) == "png" }
-        if (emotes.isEmpty() && images.size == 1 && selectedId != null) {
-            changeIcon(images.first())
+        val images = paths.filter { EmoteFiles.extensionOf(it.fileName.toString()) in EmoteIconFiles.EXTENSIONS }
+        if (emotes.isEmpty() && images.size == 1) {
+            if (selectedId != null) changeIcon(images.first()) else toast(EmotesI18n.t("editor.icon.pick_emote"), false)
             return
         }
+        if (emotes.isEmpty() || importing) return
+        importing = true
+        // Lecture, conversion et réduction des icônes : plusieurs centaines de ms par grosse image.
+        CompletableFuture.supplyAsync({ emotes.map { readDraft(it) } }, Util.backgroundExecutor()).whenComplete { read, _ ->
+            Minecraft.getInstance().execute {
+                importing = false
+                addDrafts(emotes.size, read ?: emptyList())
+            }
+        }
+    }
+
+    private fun addDrafts(total: Int, read: List<Draft?>) {
         var firstNew: UUID? = null
         var skipped = 0
-        emotes.forEach { path ->
-            val draft = readDraft(path)
+        read.forEach { draft ->
             when {
                 draft == null -> skipped++
                 listing(draft.id) != null || drafts.any { it.id == draft.id } -> skipped++
@@ -364,23 +372,25 @@ class EmoteEditorViewModel(initialSelection: UUID?) {
                 }
             }
         }
-        val added = emotes.size - skipped
+        val added = total - skipped
         firstNew?.let { select(it) }
         when {
             added > 0 && skipped > 0 -> toast(EmotesI18n.t("editor.import.partial", added, skipped), true)
             added > 0 -> toast(EmotesI18n.t("editor.import.done", added), true)
-            emotes.isNotEmpty() -> toast(EmotesI18n.t("editor.import.none"), false)
+            else -> toast(EmotesI18n.t("editor.import.none"), false)
         }
     }
 
     private fun readDraft(path: Path): Draft? = try {
         val fileName = path.fileName.toString()
-        val parsed = EmoteFiles.parse(Files.readAllBytes(path), fileName) ?: return null
+        if (Files.size(path) > EmoteFiles.MAX_IMPORT_SIZE) return null
+        val parsed = EmoteFiles.parse(Files.readAllBytes(path), fileName, EmoteFiles.MAX_IMPORT_SIZE) ?: return null
         var animation = parsed.animation
-        // Icône à côté du fichier (même nom, .png), comme dans le dossier d'émotes d'Emotecraft.
-        val icon = path.resolveSibling(fileName.substringBeforeLast('.') + ".png")
-        if (!parsed.hasIcon && Files.isRegularFile(icon) && Files.size(icon) <= EmoteFiles.MAX_ICON_SIZE) {
-            animation = EmoteFiles.withIcon(animation, Files.readAllBytes(icon))
+        if (parsed.hasIcon) {
+            animation = EmoteIconFiles.lighten(animation, EmoteIcons::light)
+        } else {
+            // Icône à côté du fichier (même nom), comme dans le dossier d'émotes d'Emotecraft.
+            siblingIcon(path)?.let { icon -> EmoteIcons.light(icon)?.let { animation = EmoteFiles.withIcon(animation, it) } }
         }
         val binary = EmoteFiles.toBinary(animation)
         if (binary.size > EmoteFiles.MAX_FILE_SIZE) null
@@ -392,25 +402,43 @@ class EmoteEditorViewModel(initialSelection: UUID?) {
         null
     }
 
+    private fun siblingIcon(path: Path): ByteArray? {
+        val base = path.fileName.toString().substringBeforeLast('.')
+        return EmoteIconFiles.EXTENSIONS.asSequence()
+            .map { path.resolveSibling("$base.$it") }
+            .firstOrNull { Files.isRegularFile(it) && Files.size(it) <= EmoteIconFiles.MAX_SOURCE_BYTES }
+            ?.let { runCatching { Files.readAllBytes(it) }.getOrNull() }
+    }
+
     fun pickFiles() = EmoteFilePicker.pickEmotes { importFiles(it) }
 
     fun pickIcon() = EmoteFilePicker.pickIcon { changeIcon(it) }
 
-    /** Nouvelle icône pour l'émote choisie : le fichier est réécrit et sera renvoyé à l'enregistrement. */
+    /**
+     * Nouvelle icône pour l'émote choisie, réduite à 256 px quelle que soit l'image (PNG, JPG, WebP…) :
+     * le fichier est réécrit et sera renvoyé à l'enregistrement.
+     */
     private fun changeIcon(path: Path) {
-        val current = form ?: return
-        val png = runCatching { Files.readAllBytes(path) }.getOrNull()
-        if (png == null || png.size > EmoteFiles.MAX_ICON_SIZE || EmoteIcons.decode(png) == null) {
-            toast(EmotesI18n.t("editor.icon.invalid"), false)
-            return
-        }
+        val id = selectedId ?: return
         val animation = selectedAnimation ?: run {
             toast(EmotesI18n.t("editor.icon.loading"), false)
             return
         }
+        CompletableFuture.supplyAsync({
+            val source = runCatching { if (Files.size(path) <= EmoteIconFiles.MAX_SOURCE_BYTES) Files.readAllBytes(path) else null }.getOrNull()
+            source?.let { EmoteIcons.light(it) }
+        }, Util.backgroundExecutor()).whenComplete { png, _ ->
+            Minecraft.getInstance().execute { applyIcon(id, animation, png) }
+        }
+    }
+
+    private fun applyIcon(id: UUID, animation: KeyframeAnimation, png: ByteArray?) {
+        val current = form?.takeIf { it.id == id } ?: return
+        if (png == null) return toast(EmotesI18n.t("editor.icon.invalid"), false)
         val binary = EmoteFiles.toBinary(EmoteFiles.withIcon(animation, png))
         form = current.copy(pendingFile = binary, pendingSha = EmoteFiles.sha256(binary), pendingIcon = EmoteIcons.decode(png))
-        toast(EmotesI18n.t("editor.icon.changed"), true)
+        val side = EmoteIconFiles.sizeOf(png)?.first ?: EmoteIconFiles.SIDE
+        toast(EmotesI18n.t("editor.icon.changed", side, (png.size + 1023) / 1024), true)
     }
 
     // ─── Enregistrement ───────────────────────────────────────────────────────────
@@ -545,7 +573,7 @@ class EmoteEditorViewModel(initialSelection: UUID?) {
         menu = null
     }
 
-    fun bulk(action: EmoteEditorBulkPayload.Action, categoryId: String = "", price: Long = 0, percent: Int = 0, durationMs: Long = 0) {
+    fun bulk(action: EmoteEditorBulkPayload.Action, price: Long = 0, percent: Int = 0, durationMs: Long = 0) {
         val ids = selection.toList()
         if (ids.isEmpty()) return
         if (action == EmoteEditorBulkPayload.Action.DELETE && !confirmBulkDelete) {
@@ -554,7 +582,7 @@ class EmoteEditorViewModel(initialSelection: UUID?) {
         }
         confirmBulkDelete = false
         if (!ClientPlayNetworking.canSend(EmoteEditorBulkPayload.TYPE)) return toast(EmotesI18n.t("editor.error.server"), false)
-        ClientPlayNetworking.send(EmoteEditorBulkPayload(action, ids, categoryId, price, percent, durationMs))
+        ClientPlayNetworking.send(EmoteEditorBulkPayload(action, ids, "", price, percent, durationMs))
         menu = null
         if (action == EmoteEditorBulkPayload.Action.DELETE) {
             selection.clear()
@@ -602,20 +630,6 @@ class EmoteEditorViewModel(initialSelection: UUID?) {
         }
     }
 
-    // ─── Catégories ──────────────────────────────────────────────────────────────
-
-    fun category(action: EmoteCategoryEditPayload.Action, id: String = "", name: String = "") {
-        if (action == EmoteCategoryEditPayload.Action.DELETE && confirmDeleteCategory != id) {
-            confirmDeleteCategory = id
-            return
-        }
-        confirmDeleteCategory = null
-        if (!ClientPlayNetworking.canSend(EmoteCategoryEditPayload.TYPE)) return toast(EmotesI18n.t("editor.error.server"), false)
-        ClientPlayNetworking.send(EmoteCategoryEditPayload(action, id, name.trim()))
-        if (action == EmoteCategoryEditPayload.Action.CREATE) newCategoryName = ""
-        if (action == EmoteCategoryEditPayload.Action.RENAME) renaming = null
-    }
-
     // ─── Boutique ────────────────────────────────────────────────────────────────
 
     fun loadShopFields() {
@@ -642,6 +656,19 @@ class EmoteEditorViewModel(initialSelection: UUID?) {
         ClientPlayNetworking.send(EmoteShopSettingsPayload(percent, duration, newDays))
     }
 
+    /** Le serveur ramène les icônes trop lourdes du catalogue à 256 px (fichiers plus légers à télécharger). */
+    fun shrinkIcons() {
+        if (shrinking) return
+        val ids = listings.map { it.id }
+        if (ids.isEmpty()) return
+        if (!ClientPlayNetworking.canSend(EmoteEditorBulkPayload.TYPE)) return toast(EmotesI18n.t("editor.error.server"), false)
+        shrinking = true
+        ClientPlayNetworking.send(EmoteEditorBulkPayload(EmoteEditorBulkPayload.Action.SHRINK_ICONS, ids))
+    }
+
+    /** Taille de l'icône rangée dans le fichier de l'émote (0 sans icône ou pas encore téléchargée). */
+    fun iconBytes(listing: EmoteListing): Int = EmoteHolder.list[listing.id]?.emote?.let { EmoteFiles.iconBytes(it)?.size } ?: 0
+
     // ─── Réponses ────────────────────────────────────────────────────────────────
 
     private fun onResult(result: EmoteEditorResultPayload) {
@@ -657,6 +684,7 @@ class EmoteEditorViewModel(initialSelection: UUID?) {
             return
         }
         saving = false
+        if (result.emoteId == null) shrinking = false
         toast(result.message, result.success)
         if (!result.success) return
         val id = result.emoteId ?: run {

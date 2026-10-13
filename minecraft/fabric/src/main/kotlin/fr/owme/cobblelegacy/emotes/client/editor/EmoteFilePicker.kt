@@ -25,8 +25,12 @@ object EmoteFilePicker {
     fun pickEmotes(onPicked: (List<Path>) -> Unit) =
         pick("Ajouter des émotes", listOf("*.emotecraft", "*.json"), "Émotes Emotecraft (.emotecraft, .json)", multiple = true, onPicked)
 
+    /** N'importe quelle image : elle est réduite à la taille d'une icône. */
     fun pickIcon(onPicked: (Path) -> Unit) =
-        pick("Choisir l'icône de l'émote", listOf("*.png"), "Images PNG", multiple = false) { onPicked(it.first()) }
+        pick(
+            "Choisir l'icône de l'émote", listOf("*.png", "*.jpg", "*.jpeg", "*.webp", "*.gif", "*.bmp"),
+            "Images (PNG, JPG, WebP, GIF, BMP)", multiple = false
+        ) { onPicked(it.first()) }
 
     private fun pick(title: String, patterns: List<String>, description: String, multiple: Boolean, onPicked: (List<Path>) -> Unit) {
         if (!open.compareAndSet(false, true)) return

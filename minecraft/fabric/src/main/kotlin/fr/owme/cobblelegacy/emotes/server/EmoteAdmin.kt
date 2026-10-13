@@ -2,6 +2,7 @@ package fr.owme.cobblelegacy.emotes.server
 
 import fr.owme.cobblelegacy.emotes.CobbleLegacyEmotes
 import fr.owme.cobblelegacy.emotes.EmoteFiles
+import fr.owme.cobblelegacy.emotes.EmoteIconFiles
 import fr.owme.cobblelegacy.emotes.catalog.EmoteAccess
 import fr.owme.cobblelegacy.emotes.catalog.EmoteCategory
 import fr.owme.cobblelegacy.emotes.catalog.EmoteListing
@@ -16,6 +17,7 @@ import net.minecraft.server.MinecraftServer
 import java.nio.file.Files
 import java.nio.file.Path
 import java.text.Normalizer
+import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
 
@@ -30,6 +32,9 @@ object EmoteAdmin {
     private val logger = CobbleLegacyEmotes.logger
 
     private const val DAY = EmoteShopSettings.DAY_MS
+
+    /** En dessous, le fichier ne peut pas cacher une icône lourde : pas la peine de le relire. */
+    private const val LIGHT_FILE_BYTES = 48 * 1024
     private const val KEEP = EmoteEditorSavePayload.KEEP
 
     private fun unavailable(): String? = when {
@@ -210,8 +215,54 @@ object EmoteAdmin {
             }
             EmoteEditorBulkPayload.Action.DELETE ->
                 commitBulk(server, storage.deleteListings(targets.map { it.id }), emotes(targets.size, "supprimée") + " du catalogue.", done)
+            EmoteEditorBulkPayload.Action.SHRINK_ICONS -> shrinkIcons(server, targets, done)
         }
     }
+
+    /**
+     * Icônes trop lourdes ramenées à 256 px : chaque fichier est relu, réécrit avec son icône allégée
+     * (animation intacte) et remplacé s'il n'a pas changé entre-temps. Hors du thread du serveur.
+     */
+    private fun shrinkIcons(server: MinecraftServer, targets: List<EmoteListing>, done: (String?, String) -> Unit) {
+        val storage = ServerEmoteCatalog.storage!!
+        val candidates = targets.filter { it.hasIcon && it.fileSize > LIGHT_FILE_BYTES }
+        if (candidates.isEmpty()) return done(null, "Les icônes sont déjà légères.")
+        CompletableFuture.supplyAsync({
+            var shrunk = 0
+            var before = 0L
+            var after = 0L
+            for (listing in candidates) {
+                val bytes = storage.readFile(listing.fileSha256).join() ?: continue
+                val animation = EmoteFiles.parseBinary(bytes)?.animation ?: continue
+                val lighter = EmoteIconFiles.lighten(animation)
+                if (lighter === animation) continue
+                val file = EmoteFiles.toBinary(lighter)
+                if (file.size >= bytes.size) continue
+                if (storage.replaceFile(listing.id, listing.fileSha256, EmoteFiles.sha256(file), file).join()) {
+                    shrunk++
+                    before += bytes.size
+                    after += file.size
+                }
+            }
+            Triple(shrunk, before, after)
+        }, { task -> Thread(task, "CobbleLegacyEmotes-Icons").apply { isDaemon = true }.start() }).whenComplete { result, error ->
+            server.execute {
+                when {
+                    error != null || result == null -> {
+                        logger.error("[Émotes] Allègement des icônes en échec", error)
+                        done("Allègement des icônes impossible.", "")
+                    }
+                    result.first == 0 -> done(null, "Les icônes sont déjà légères.")
+                    else -> ServerEmoteCatalog.reload {
+                        done(null, "${if (result.first == 1) "1 icône allégée" else "${result.first} icônes allégées"} : ${megabytes(result.second)} → ${megabytes(result.third)}.")
+                    }
+                }
+            }
+        }
+    }
+
+    private fun megabytes(bytes: Long): String =
+        if (bytes < 1024 * 1024) "${(bytes + 1023) / 1024} Ko" else "%.1f Mo".format(Locale.FRANCE, bytes / 1048576.0)
 
     /** « 1 émote publiée », « 3 émotes publiées ». */
     private fun emotes(count: Int, participle: String) = if (count == 1) "1 émote $participle" else "$count émotes ${participle}s"
@@ -345,15 +396,20 @@ object EmoteAdmin {
 
         for (path in files) {
             val fileName = path.fileName.toString()
-            val parsed = runCatching { EmoteFiles.parse(Files.readAllBytes(path), fileName) }.getOrNull()
+            val parsed = runCatching {
+                if (Files.size(path) <= EmoteFiles.MAX_IMPORT_SIZE) EmoteFiles.parse(Files.readAllBytes(path), fileName, EmoteFiles.MAX_IMPORT_SIZE) else null
+            }.getOrNull()
             if (parsed == null) {
                 skipped += "$fileName (illisible)"
                 continue
             }
-            var animation = parsed.animation
-            val icon = path.resolveSibling(fileName.substringBeforeLast('.') + ".png")
-            if (Files.isRegularFile(icon) && Files.size(icon) <= EmoteFiles.MAX_ICON_SIZE) {
-                animation = EmoteFiles.withIcon(animation, Files.readAllBytes(icon))
+            // Icône allégée (256 px) : celle du fichier, sinon une image du même nom à côté.
+            var animation = EmoteIconFiles.lighten(parsed.animation)
+            val base = fileName.substringBeforeLast('.')
+            val icon = EmoteIconFiles.EXTENSIONS.map { path.resolveSibling("$base.$it") }
+                .firstOrNull { Files.isRegularFile(it) && Files.size(it) <= EmoteIconFiles.MAX_SOURCE_BYTES }
+            if (icon != null) {
+                runCatching { EmoteIconFiles.light(Files.readAllBytes(icon)) }.getOrNull()?.let { animation = EmoteFiles.withIcon(animation, it) }
             }
             if (!known.add(animation.uuid)) {
                 skipped += "$fileName (déjà au catalogue)"
@@ -390,7 +446,7 @@ object EmoteAdmin {
             writes += storage.saveListing(listing, bytes, author)
             added += name
             moveToImported(path)
-            if (Files.isRegularFile(icon)) moveToImported(icon)
+            if (icon != null && Files.isRegularFile(icon)) moveToImported(icon)
         }
 
         CompletableFuture.allOf(*writes.toTypedArray()).thenAccept {

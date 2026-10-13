@@ -97,6 +97,8 @@ object CobbleLegacyEmotesClient : ClientModInitializer {
                 else -> null
             }
             if (refusal == null) {
+                // Jouée : son badge NEW de la roue et de la collection s'en va.
+                EmoteSeen.markSeen(emote.uuid)
                 EventResult.PASS
             } else {
                 mc.gui.setOverlayMessage(Component.translatable(refusal).withStyle(ChatFormatting.GOLD), false)

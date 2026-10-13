@@ -22,8 +22,8 @@ object EmoteFiles {
     /** Fichier rangé dans le catalogue (icône comprise). */
     const val MAX_FILE_SIZE = 4 * 1024 * 1024
 
-    /** Icône PNG ajoutée depuis l'éditeur. */
-    const val MAX_ICON_SIZE = 1024 * 1024
+    /** Fichier importé (éditeur, dossier d'import) : son icône est allégée avant de le ranger. */
+    const val MAX_IMPORT_SIZE = 48 * 1024 * 1024
 
     val IMPORT_EXTENSIONS = setOf("emotecraft", "json")
 
@@ -44,8 +44,8 @@ object EmoteFiles {
     fun parseBinary(bytes: ByteArray): Parsed? = parse(bytes, "emote.emotecraft")
 
     /** Un fichier importé, d'après son extension (`.emotecraft` ou `.json`). */
-    fun parse(bytes: ByteArray, fileName: String): Parsed? {
-        if (bytes.isEmpty() || bytes.size > MAX_FILE_SIZE) return null
+    fun parse(bytes: ByteArray, fileName: String, maxSize: Int = MAX_FILE_SIZE): Parsed? {
+        if (bytes.isEmpty() || bytes.size > maxSize) return null
         val animation = try {
             UniversalEmoteSerializer.readData(ByteArrayInputStream(bytes), fileName).firstOrNull()
         } catch (e: Exception) {
@@ -89,8 +89,10 @@ object EmoteFiles {
 
     /** Copie de [animation] avec une autre icône PNG. */
     fun withIcon(animation: KeyframeAnimation, png: ByteArray): KeyframeAnimation {
-        val copy = animation.mutableCopy()
-        copy.extraData["iconData"] = ByteBuffer.wrap(png)
+        val copy = detachedCopy(animation)
+        // build() réécrit extraData["iconData"] depuis ce champ : c'est lui qu'il faut changer.
+        copy.iconData = ByteBuffer.wrap(png)
+        copy.extraData["iconData"] = copy.iconData
         return copy.build()
     }
 
@@ -105,10 +107,18 @@ object EmoteFiles {
     /** L'animation sans son icône : c'est tout ce qu'il faut au serveur pour la diffuser. */
     fun withoutIcon(animation: KeyframeAnimation): KeyframeAnimation {
         if (!animation.extraData.containsKey("iconData")) return animation
-        val copy = animation.mutableCopy()
+        val copy = detachedCopy(animation)
+        copy.iconData = null
         copy.extraData.remove("iconData")
         return copy.build()
     }
+
+    /**
+     * Copie modifiable qui ne partage pas les données annexes : `mutableCopy()` de PlayerAnimator reprend
+     * la même table, changer la copie changerait aussi l'émote d'origine.
+     */
+    private fun detachedCopy(animation: KeyframeAnimation): KeyframeAnimation.AnimationBuilder =
+        animation.mutableCopy().also { it.extraData = HashMap(it.extraData) }
 
     /**
      * Version « allégée » d'une émote du catalogue pour le réseau : même UUID et même minutage, sans

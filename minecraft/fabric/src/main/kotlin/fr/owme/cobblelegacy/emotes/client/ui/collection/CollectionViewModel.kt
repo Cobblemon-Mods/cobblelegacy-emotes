@@ -13,6 +13,7 @@ import fr.owme.cobblelegacy.emotes.client.ClientEmoteCatalog
 import fr.owme.cobblelegacy.emotes.client.ClientEmoteFiles
 import fr.owme.cobblelegacy.emotes.client.EmoteEntry
 import fr.owme.cobblelegacy.emotes.client.EmoteLibrary
+import fr.owme.cobblelegacy.emotes.client.EmoteSeen
 import fr.owme.cobblelegacy.emotes.client.EmoteSource
 import fr.owme.cobblelegacy.emotes.client.WheelConfig
 import fr.owme.cobblelegacy.emotes.client.preview.PREVIEW_DEFAULT_PITCH
@@ -40,7 +41,7 @@ class CollectionViewModel(initialSelection: UUID?, val target: WheelTarget?) {
     var filter by mutableStateOf(Filter.ALL)
         private set
 
-    /** Id de catégorie, ou [BASE] / [LOCAL] / [NONE]. */
+    /** Origine : [BASE] (émotes de base) ou [LOCAL] (dossier du joueur). */
     var category by mutableStateOf<String?>(null)
         private set
     var rarity by mutableStateOf<EmoteRarity?>(null)
@@ -101,24 +102,38 @@ class CollectionViewModel(initialSelection: UUID?, val target: WheelTarget?) {
 
     val unlockedCount: Int get() = entries.count { it.unlocked }
 
+    /**
+     * Vues pendant que la collection est ouverte : elles perdent leur badge mais restent dans le filtre
+     * « Nouvelles », la grille ne saute pas sous le pointeur.
+     */
+    private val seenHere = HashSet<UUID>()
+
+    private fun isNewHere(entry: EmoteEntry): Boolean = EmoteSeen.isNew(entry) || entry.id in seenHere
+
+    val newCount: Int get() = entries.count { isNewHere(it) }
+
+    fun markSeen(entry: EmoteEntry) {
+        if (EmoteSeen.isNew(entry)) {
+            seenHere += entry.id
+            EmoteSeen.markSeen(entry.id)
+        }
+    }
+
     val filtered: List<EmoteEntry>
         get() {
             val needle = normalizeSearch(query)
-            val now = System.currentTimeMillis()
             return entries.filter { entry ->
                 (needle.isEmpty() || normalizeSearch(entry.name).contains(needle) || normalizeSearch(entry.author).contains(needle)) &&
                     when (filter) {
                         Filter.ALL -> true
                         Filter.UNLOCKED -> entry.unlocked
                         Filter.LOCKED -> !entry.unlocked
-                        Filter.NEW -> entry.listing?.isNew(now) == true
+                        Filter.NEW -> isNewHere(entry)
                     } &&
                     when (category) {
-                        null -> true
                         BASE -> entry.source == EmoteSource.BUILTIN
                         LOCAL -> entry.source == EmoteSource.LOCAL
-                        NONE -> entry.source == EmoteSource.CATALOG && entry.categoryId == null
-                        else -> entry.categoryId == category
+                        else -> true
                     } &&
                     (rarity == null || entry.rarity == rarity)
             }.sortedWith(compareBy({ !it.unlocked }, { it.source.ordinal }))
@@ -126,14 +141,11 @@ class CollectionViewModel(initialSelection: UUID?, val target: WheelTarget?) {
 
     val selected: EmoteEntry? get() = selectedId?.let { id -> entries.firstOrNull { it.id == id } }
 
-    val categories get() = observe().let { ClientEmoteCatalog.categories }
-
-    fun countIn(categoryId: String): Int = entries.count {
-        when (categoryId) {
+    fun countIn(source: String): Int = entries.count {
+        when (source) {
             BASE -> it.source == EmoteSource.BUILTIN
             LOCAL -> it.source == EmoteSource.LOCAL
-            NONE -> it.source == EmoteSource.CATALOG && it.categoryId == null
-            else -> it.categoryId == categoryId
+            else -> false
         }
     }
 
@@ -161,6 +173,7 @@ class CollectionViewModel(initialSelection: UUID?, val target: WheelTarget?) {
     }
 
     fun select(id: UUID) {
+        entries.firstOrNull { it.id == id }?.let { markSeen(it) }
         if (selectedId != id) {
             selectedId = id
             placing = false
@@ -287,6 +300,5 @@ class CollectionViewModel(initialSelection: UUID?, val target: WheelTarget?) {
     companion object {
         const val BASE = "@base"
         const val LOCAL = "@local"
-        const val NONE = "@none"
     }
 }

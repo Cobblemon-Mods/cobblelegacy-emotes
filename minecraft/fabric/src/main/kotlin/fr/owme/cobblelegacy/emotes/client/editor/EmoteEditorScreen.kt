@@ -27,8 +27,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.aperso.composite.core.ComposeScreen
+import fr.owme.cobblelegacy.emotes.EmoteIconFiles
 import fr.owme.cobblelegacy.emotes.client.ui.*
-import fr.owme.cobblelegacy.emotes.network.EmoteCategoryEditPayload
 import kotlinx.coroutines.isActive
 import java.nio.file.Path
 import java.text.SimpleDateFormat
@@ -94,7 +94,6 @@ private fun EditorContent(vm: EmoteEditorViewModel) {
             EditorTopBar(vm)
             when (vm.tab) {
                 EmoteEditorViewModel.Tab.EMOTES -> EmotesTab(vm)
-                EmoteEditorViewModel.Tab.CATEGORIES -> CategoriesTab(vm)
                 EmoteEditorViewModel.Tab.SHOP -> ShopTab(vm)
             }
         }
@@ -150,7 +149,6 @@ private fun EditorTopBar(vm: EmoteEditorViewModel) {
                 horizontalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 SegmentTab(EmotesI18n.t("editor.tab.emotes"), vm.listings.size.toString(), vm.tab == EmoteEditorViewModel.Tab.EMOTES) { vm.tab = EmoteEditorViewModel.Tab.EMOTES }
-                SegmentTab(EmotesI18n.t("editor.tab.categories"), null, vm.tab == EmoteEditorViewModel.Tab.CATEGORIES) { vm.tab = EmoteEditorViewModel.Tab.CATEGORIES }
                 SegmentTab(EmotesI18n.t("editor.tab.shop"), null, vm.tab == EmoteEditorViewModel.Tab.SHOP) {
                     vm.loadShopFields()
                     vm.tab = EmoteEditorViewModel.Tab.SHOP
@@ -161,14 +159,14 @@ private fun EditorTopBar(vm: EmoteEditorViewModel) {
                 Row(
                     modifier = Modifier
                         .clip(RoundedCornerShape(9.dp))
-                        .background(Amber)
-                        .clickable { vm.pickFiles() }
+                        .background(if (vm.importing) Amber.copy(alpha = 0.6f) else Amber)
+                        .clickable(enabled = !vm.importing) { vm.pickFiles() }
                         .padding(horizontal = 12.dp, vertical = 7.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Icon(Icons.Outlined.FileUpload, null, tint = OnAmber, modifier = Modifier.size(13.dp))
-                    Text(EmotesI18n.t("editor.import"), fontSize = 10.sp, fontWeight = FontWeight.Bold, color = OnAmber)
+                    Icon(if (vm.importing) Icons.Outlined.HourglassTop else Icons.Outlined.FileUpload, null, tint = OnAmber, modifier = Modifier.size(13.dp))
+                    Text(EmotesI18n.t(if (vm.importing) "editor.importing" else "editor.import"), fontSize = 10.sp, fontWeight = FontWeight.Bold, color = OnAmber)
                 }
             }
         }
@@ -213,62 +211,6 @@ internal fun DraftIcon(draft: EmoteEditorViewModel.Draft, size: Dp) {
 internal val DraftViolet = Color(0xFFA78BFA)
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// ONGLET CATÉGORIES
-// ═══════════════════════════════════════════════════════════════════════════════
-
-@Composable
-private fun CategoriesTab(vm: EmoteEditorViewModel) {
-    Box(Modifier.fillMaxSize().padding(20.dp), contentAlignment = Alignment.TopCenter) {
-        Column(Modifier.widthIn(max = 560.dp).fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            SectionLabel(EmotesI18n.t("editor.categories.title"))
-            Text(EmotesI18n.t("editor.categories.hint"), fontSize = 9.sp, color = EmotesTheme.TextMuted)
-            Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                EditorField(EmotesI18n.t("editor.categories.new"), vm.newCategoryName, { vm.newCategoryName = it.take(32) }, Modifier.weight(1f), placeholder = EmotesI18n.t("editor.categories.placeholder"))
-                Box(Modifier.width(120.dp)) {
-                    ShopButton(Icons.Outlined.Add, EmotesI18n.t("editor.categories.create"), Amber, filled = true, enabled = vm.newCategoryName.isNotBlank()) {
-                        vm.category(EmoteCategoryEditPayload.Action.CREATE, name = vm.newCategoryName)
-                    }
-                }
-            }
-            Spacer(Modifier.height(4.dp))
-            val categories = vm.categories
-            if (categories.isEmpty()) Text(EmotesI18n.t("editor.categories.empty"), fontSize = 10.sp, color = EmotesTheme.TextMuted)
-            categories.forEach { category ->
-                val count = vm.listings.count { it.categoryId == category.id }
-                Row(
-                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(EmotesTheme.SurfaceTiny)
-                        .border(1.dp, EmotesTheme.BorderSubtle, RoundedCornerShape(10.dp)).padding(horizontal = 10.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Icon(Icons.Outlined.Folder, null, tint = Amber, modifier = Modifier.size(14.dp))
-                    if (vm.renaming == category.id) {
-                        EditorField(null, vm.renameText, { vm.renameText = it.take(32) }, Modifier.weight(1f))
-                        SmallIconButton(Icons.Outlined.Check) { vm.category(EmoteCategoryEditPayload.Action.RENAME, category.id, vm.renameText) }
-                        SmallIconButton(Icons.Outlined.Close) { vm.renaming = null }
-                    } else {
-                        Text(category.name, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = Color.White, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(EmotesI18n.t("shop.count", count), fontSize = 9.sp, color = EmotesTheme.TextMuted)
-                        SmallIconButton(Icons.Outlined.ArrowUpward) { vm.category(EmoteCategoryEditPayload.Action.MOVE_UP, category.id) }
-                        SmallIconButton(Icons.Outlined.ArrowDownward) { vm.category(EmoteCategoryEditPayload.Action.MOVE_DOWN, category.id) }
-                        SmallIconButton(Icons.Outlined.Edit) {
-                            vm.renaming = category.id
-                            vm.renameText = category.name
-                        }
-                        SmallIconButton(Icons.Outlined.DeleteOutline, tint = if (vm.confirmDeleteCategory == category.id) EmotesTheme.Danger else EmotesTheme.TextSoft) {
-                            vm.category(EmoteCategoryEditPayload.Action.DELETE, category.id)
-                        }
-                    }
-                }
-                if (vm.confirmDeleteCategory == category.id) {
-                    Text(EmotesI18n.t("editor.categories.delete_confirm", category.name), fontSize = 8.sp, color = EmotesTheme.Danger)
-                }
-            }
-        }
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
 // ONGLET BOUTIQUE
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -276,8 +218,10 @@ private fun CategoriesTab(vm: EmoteEditorViewModel) {
 private fun ShopTab(vm: EmoteEditorViewModel) {
     val now = System.currentTimeMillis()
     val settings = vm.settings
+    // Deux colonnes : les réglages à gauche, le poids des fichiers et les chiffres à droite.
     Box(Modifier.fillMaxSize().padding(20.dp), contentAlignment = Alignment.TopCenter) {
-        Column(Modifier.widthIn(max = 560.dp).fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+      Row(Modifier.widthIn(max = 1040.dp).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Card {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Outlined.LocalOffer, null, tint = EmotesTheme.Promo, modifier = Modifier.size(15.dp))
@@ -311,8 +255,10 @@ private fun ShopTab(vm: EmoteEditorViewModel) {
                 EditorField(EmotesI18n.t("editor.field.days"), vm.newDaysSetting, { vm.newDaysSetting = it.filter(Char::isDigit).take(3) }, Modifier.width(140.dp))
             }
             PrimaryButton(Icons.Outlined.Save, EmotesI18n.t("editor.shop.save"), Amber) { vm.saveShopSettings() }
-
+        }
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             val listings = vm.listings
+            FilesCard(vm)
             Card {
                 Text(EmotesI18n.t("editor.stats.title"), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
                 DetailRow(EmotesI18n.t("editor.stats.total")) { Text("${listings.size}", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.White) }
@@ -321,8 +267,44 @@ private fun ShopTab(vm: EmoteEditorViewModel) {
                 DetailRow(EmotesI18n.t("editor.stats.new")) { Text("${listings.count { it.isNew(now) }}", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = EmotesTheme.New) }
             }
         }
+      }
     }
 }
+
+/**
+ * Poids des fichiers que téléchargent les joueurs (une fois, puis gardés en cache) : les icônes en font
+ * presque tout. Le bouton les fait réduire par le serveur.
+ */
+@Composable
+private fun FilesCard(vm: EmoteEditorViewModel) {
+    val listings = vm.listings
+    val published = listings.filter { it.published }.sumOf { it.fileSize.toLong() }
+    val total = listings.sumOf { it.fileSize.toLong() }
+    val heavy = listings.count { vm.iconBytes(it) > EmoteIconFiles.MAX_BYTES }
+    Card {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Outlined.Image, null, tint = Amber, modifier = Modifier.size(15.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(EmotesI18n.t("editor.files.title"), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+        }
+        Text(EmotesI18n.t("editor.files.hint"), fontSize = 9.sp, color = EmotesTheme.TextMuted)
+        DetailRow(EmotesI18n.t("editor.files.published")) { Text(megabytes(published), fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.White) }
+        DetailRow(EmotesI18n.t("editor.files.total", listings.size)) { Text(megabytes(total), fontSize = 10.sp, fontWeight = FontWeight.Bold, color = EmotesTheme.TextSoft) }
+        Text(
+            if (heavy > 0) EmotesI18n.t("editor.files.heavy", heavy) else EmotesI18n.t("editor.files.light"),
+            fontSize = 9.sp, color = if (heavy > 0) EmotesTheme.Warning else EmotesTheme.StatusActive
+        )
+        ShopButton(
+            if (vm.shrinking) Icons.Outlined.HourglassTop else Icons.Outlined.Compress,
+            EmotesI18n.t(if (vm.shrinking) "editor.files.shrinking" else "editor.files.shrink"),
+            Amber, filled = heavy > 0, enabled = !vm.shrinking && listings.isNotEmpty()
+        ) { vm.shrinkIcons() }
+    }
+}
+
+private fun megabytes(bytes: Long): String =
+    if (bytes < 1024 * 1024) EmotesI18n.t("editor.file.size_value", (bytes + 1023) / 1024)
+    else EmotesI18n.t("editor.files.mb", "%.1f".format(bytes / 1048576.0))
 
 @Composable
 private fun Card(content: @Composable ColumnScope.() -> Unit) {

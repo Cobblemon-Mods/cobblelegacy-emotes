@@ -366,14 +366,6 @@ private fun InfosTab(vm: EmoteEditorViewModel, form: Form) {
     EditorField(EmotesI18n.t("editor.field.description"), form.description, { v -> vm.update { it.copy(description = v.take(EmoteListing.MAX_DESCRIPTION_LENGTH)) } })
     EditorField(EmotesI18n.t("editor.field.author"), form.author, { v -> vm.update { it.copy(author = v.take(EmoteListing.MAX_AUTHOR_LENGTH)) } })
 
-    FieldLabel(EmotesI18n.t("editor.field.category"))
-    ChipRow {
-        Chip(EmotesI18n.t("editor.category.none"), form.categoryId == null, EmotesTheme.TextSoft) { vm.update { it.copy(categoryId = null) } }
-        vm.categories.forEach { category ->
-            Chip(category.name, form.categoryId == category.id, Amber) { vm.update { it.copy(categoryId = category.id) } }
-        }
-    }
-
     FieldLabel(EmotesI18n.t("editor.field.rarity"))
     ChipRow {
         EmoteRarity.entries.forEach { rarity ->

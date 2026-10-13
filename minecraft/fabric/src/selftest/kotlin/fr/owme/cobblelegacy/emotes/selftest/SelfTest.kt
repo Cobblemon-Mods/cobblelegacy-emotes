@@ -1,10 +1,12 @@
 package fr.owme.cobblelegacy.emotes.selftest
 
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.unit.dp
 import com.mojang.blaze3d.platform.InputConstants
 import dev.kosmx.playerAnim.core.data.KeyframeAnimation
 import fr.owme.cobblelegacy.emotes.EmoteFiles
+import fr.owme.cobblelegacy.emotes.EmoteIconFiles
 import fr.owme.cobblelegacy.emotes.catalog.EmoteAccess
 import fr.owme.cobblelegacy.emotes.catalog.EmoteListing
 import fr.owme.cobblelegacy.emotes.catalog.EmoteRarity
@@ -13,6 +15,7 @@ import fr.owme.cobblelegacy.emotes.client.ClientEmoteCatalog
 import fr.owme.cobblelegacy.emotes.client.ClientEmoteFiles
 import fr.owme.cobblelegacy.emotes.client.EmoteClientEvents
 import fr.owme.cobblelegacy.emotes.client.EmoteLibrary
+import fr.owme.cobblelegacy.emotes.client.EmoteSeen
 import fr.owme.cobblelegacy.emotes.client.WheelConfig
 import fr.owme.cobblelegacy.emotes.client.editor.EmoteEditorScreen
 import fr.owme.cobblelegacy.emotes.client.editor.EmoteEditorViewModel
@@ -20,6 +23,8 @@ import fr.owme.cobblelegacy.emotes.client.editor.EmoteEditorViewModel.Menu
 import fr.owme.cobblelegacy.emotes.client.editor.EmoteEditorViewModel.PanelTab
 import fr.owme.cobblelegacy.emotes.client.editor.EmoteEditorViewModel.Sort
 import fr.owme.cobblelegacy.emotes.client.editor.EmoteEditorViewModel.StatusFilter
+import fr.owme.cobblelegacy.emotes.client.shop.EmoteShopHost
+import fr.owme.cobblelegacy.emotes.client.shop.EmoteShopViewModel
 import fr.owme.cobblelegacy.emotes.client.shop.emoteShopNewCount
 import fr.owme.cobblelegacy.emotes.client.ui.ComposeEmoteScreens
 import fr.owme.cobblelegacy.emotes.client.ui.collection.EmoteCollectionScreen
@@ -70,12 +75,15 @@ import net.minecraft.world.level.levelgen.presets.WorldPresets
 import net.minecraft.world.phys.Vec3
 import org.lwjgl.glfw.GLFW
 import org.slf4j.LoggerFactory
+import java.awt.image.BufferedImage
+import java.io.ByteArrayOutputStream
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.function.Function
 import java.util.function.Supplier
+import javax.imageio.ImageIO
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -117,6 +125,9 @@ object SelfTest {
     private var balanceBefore = 0L
     private var testEmoteId: UUID? = null
     private var testEmoteId2: UUID? = null
+    private var fileBefore: String? = null
+    private var photoSize = 0L
+    private var heavyBefore = 0L
     private var pokematosOpened = false
     private var walkedFrom = Vec3.ZERO
     private var pool = BlockPos.ZERO
@@ -295,7 +306,11 @@ object SelfTest {
         }
 
         // ── Déplacements : marcher arrête une émote, sauf celles réglées « en mouvement » ──
-        then("émote normale", 12) { mc -> check("une émote se lance à l'arrêt", playLocal(mc, "cool sit")) }
+        then("émote normale", 12) { mc ->
+            val wasNew = EmoteSeen.isNew(EmoteLibrary.entry(id("cool sit"))!!)
+            check("une émote se lance à l'arrêt", playLocal(mc, "cool sit"))
+            check("NEW de la roue : affiché tant qu'elle n'a pas été jouée, retiré dès qu'elle l'est", wasNew && !EmoteSeen.isNew(EmoteLibrary.entry(id("cool sit"))!!))
+        }
         then("marcher avec une émote normale", 15) { mc ->
             check("l'émote joue", playing(mc))
             mc.options.keyUp.setDown(true)
@@ -462,12 +477,14 @@ object SelfTest {
         then("ouvrir la roue", 30) { _ -> ComposeEmoteScreens.openWheel() }
         then("capture roue", 5) { mc ->
             check("la roue Compose s'ouvre", mc.screen is EmoteWheelScreen)
+            check("Griddy achetée : badge NEW dans la roue", EmoteSeen.isNew(EmoteLibrary.entry(id("griddy"))!!))
             shot(mc, "02-roue")
             pointAtWheelSlot(mc, 0)
         }
         waitFor("survol de la case 1", 20) { mc -> (mc.screen as? EmoteWheelScreen)?.vm?.hovered == 0 }
         then("survol", 5) { mc ->
             check("le pointeur sur la case 1 la sélectionne", (mc.screen as EmoteWheelScreen).vm.hovered == 0)
+            check("survolée dans la roue : plus de badge NEW", !EmoteSeen.isNew(EmoteLibrary.entry(id("griddy"))!!))
             shot(mc, "03-roue-survol-griddy")
             pointAtWheelSlot(mc, 4)
         }
@@ -502,8 +519,14 @@ object SelfTest {
         then("ouvrir la collection", 30) { _ -> ComposeEmoteScreens.openCollection(id("macarena"), null) }
         then("capture collection", 5) { mc ->
             check("la collection Compose s'ouvre", mc.screen is EmoteCollectionScreen)
+            check("Macarena achetée : badge NEW dans la collection", EmoteSeen.isNew(EmoteLibrary.entry(id("macarena"))!!))
             shot(mc, "05-collection")
-            (mc.screen as EmoteCollectionScreen).vm.select(id("moonwalk"))
+            val vm = (mc.screen as EmoteCollectionScreen).vm
+            vm.select(id("macarena"))
+            check("ouverte dans la collection : plus de badge NEW", !EmoteSeen.isNew(EmoteLibrary.entry(id("macarena"))!!))
+            val seen = mc.gameDirectory.toPath().resolve("config").resolve("cobblelegacy-emotes").resolve("vues.json")
+            check("émotes vues gardées dans vues.json", Files.isRegularFile(seen) && Files.readString(seen).contains(id("macarena").toString()))
+            vm.select(id("moonwalk"))
         }
         then("collection : verrouillée", 20) { mc -> shot(mc, "06-collection-moonwalk") }
         then("collection : émote verrouillée", 20) { mc ->
@@ -548,6 +571,15 @@ object SelfTest {
         then("boutique joueur", 30) { _ ->
             check("promotion -15 % : Griddy (déjà à 800) passerait à 680", ClientEmoteCatalog.settings.priceOf(byName("griddy"), System.currentTimeMillis()) == 680L)
             check("la réduction la plus forte gagne (Macarena -25 %)", ClientEmoteCatalog.settings.discountOf(byName("macarena"), System.currentTimeMillis()) == 25)
+            val shop = EmoteShopViewModel({ testShopHost }, null)
+            val list = shop.visibleEntries
+            val fresh = list.takeWhile { it.isNew }
+            val added = fresh.map { it.listing!!.addedAtMs }
+            check(
+                "boutique : ${fresh.size} nouveautés en tête (la plus récente d'abord), puis les ${list.size - fresh.size} autres",
+                fresh.isNotEmpty() && list.drop(fresh.size).none { it.isNew } && added == added.sortedDescending() && list.drop(fresh.size).any { it.id == id("hug") }
+            )
+            shop.dispose()
             ComposeEmoteScreens.openShop(null)
         }
         then("capture boutique", 10) { mc -> shot(mc, "10-boutique-accueil") }
@@ -620,17 +652,26 @@ object SelfTest {
             vm.sort = Sort.CATALOG
         }
         then("nouvelle émote : fichier", 10) { mc ->
-            val newId = writeTestEmote(mc, "Autotest")
+            // Icône énorme dans le fichier (1600×1200, plusieurs Mo) : l'import doit la réduire.
+            val newId = writeTestEmote(mc, "Autotest", noisePng(1600, 1200))
             testEmoteId = newId
+            val size = Files.size(testFile(mc, "Autotest"))
+            check("fichier de test plus lourd que l'ancienne limite (${size / 1024} Ko)", size > EmoteFiles.MAX_FILE_SIZE)
+            editor(mc).importFiles(listOf(testFile(mc, "Autotest")))
+        }
+        waitFor("brouillon importé", 10) { mc -> editor(mc).drafts.any { it.id == testEmoteId } }
+        then("brouillon vérifié", 5) { mc ->
             val vm = editor(mc)
-            vm.importFiles(listOf(testFile(mc, "Autotest")))
-            check("fichier ajouté en brouillon dans l'éditeur", vm.drafts.any { it.id == newId } && vm.form?.creating == true)
+            val draft = vm.drafts.first { it.id == testEmoteId }
+            val side = EmoteFiles.iconBytes(draft.parsed.animation)?.let { EmoteIconFiles.sizeOf(it) }
+            check("icône réduite à l'import : ${side?.first}×${side?.second} px, fichier ${draft.data.size / 1024} Ko", side == 256 to 256 && draft.data.size < 200 * 1024)
+            check("fichier ajouté en brouillon dans l'éditeur", vm.form?.creating == true && vm.form?.id == testEmoteId)
             vm.panelTab = PanelTab.INFOS
         }
         then("capture brouillon", 15) { mc -> shot(mc, "14-editeur-brouillon") }
         then("enregistrer la nouvelle émote", 5) { mc ->
             val vm = editor(mc)
-            vm.update { it.copy(name = "Autotest", price = "1234", categoryId = onServer { ServerEmoteCatalog.categories.first().id }) }
+            vm.update { it.copy(name = "Autotest", price = "1234") }
             // Bouton « Ajouter et publier »
             vm.save(publish = true)
         }
@@ -640,12 +681,36 @@ object SelfTest {
             val listing = onServer { ServerEmoteCatalog.listings[testEmoteId!!] }!!
             check("nouvelle émote au catalogue (envoi par morceaux, ${listing.fileSize} o)", listing.price == 1234L && listing.published && listing.isNew(System.currentTimeMillis()))
             check("animation relue par le serveur", onServer { ServerEmoteCatalog.animationOf(testEmoteId!!) } != null)
+            // Nouvelle icône : une grande photo JPEG (bien plus de 1 Mo), glissée sur la fenêtre.
+            val photo = mc.gameDirectory.toPath().resolve("selftest").resolve("photo.jpg")
+            Files.write(photo, noiseJpeg(3000, 2000))
+            photoSize = Files.size(photo)
+            fileBefore = listing.fileSha256
+            val vm = editor(mc)
+            vm.select(testEmoteId!!)
+            vm.importFiles(listOf(photo))
+        }
+        waitFor("icône préparée", 10) { mc -> editor(mc).form?.pendingFile != null }
+        then("nouvelle icône", 5) { mc ->
+            val vm = editor(mc)
+            val icon = EmoteFiles.parseBinary(vm.form!!.pendingFile!!)?.let { EmoteFiles.iconBytes(it.animation) }
+            val side = icon?.let { EmoteIconFiles.sizeOf(it) }
+            check(
+                "photo JPEG de ${photoSize / 1024} Ko devenue une icône PNG de ${side?.first} px (${(icon?.size ?: 0) / 1024} Ko)",
+                icon != null && EmoteIconFiles.isPng(icon) && side == 256 to 256 && icon.size <= EmoteIconFiles.MAX_BYTES
+            )
+            vm.save()
+        }
+        waitFor("icône enregistrée", 10) { onServer { ServerEmoteCatalog.listings[testEmoteId!!]?.fileSha256 } != fileBefore }
+        then("deuxième fichier", 10) { mc ->
+            val size = onServer { ServerEmoteCatalog.listings[testEmoteId!!]!!.fileSize }
+            check("nouvelle icône envoyée au serveur (fichier de ${size / 1024} Ko)", size < 200 * 1024)
             // Deuxième fichier, ajouté par « Tout ajouter en brouillon ».
             testEmoteId2 = writeTestEmote(mc, "Autotest2")
-            val vm = editor(mc)
-            vm.importFiles(listOf(testFile(mc, "Autotest2")))
-            vm.saveAllDrafts()
+            editor(mc).importFiles(listOf(testFile(mc, "Autotest2")))
         }
+        waitFor("deuxième brouillon importé", 10) { mc -> editor(mc).drafts.any { it.id == testEmoteId2 } }
+        then("tout ajouter en brouillon", 5) { mc -> editor(mc).saveAllDrafts() }
         waitFor("brouillons ajoutés", 10) { onServer { ServerEmoteCatalog.listings[testEmoteId2!!] } != null }
         then("sélection multiple", 10) { mc ->
             val second = onServer { ServerEmoteCatalog.listings[testEmoteId2!!] }!!
@@ -668,14 +733,9 @@ object SelfTest {
             vm.applyBulkDiscount(remove = false)
         }
         waitFor("réduction groupée", 10) { bothTestEmotes { it.itemDiscount(System.currentTimeMillis()) == 20 } }
-        then("catégorie groupée", 5) { mc ->
+        then("dépublier en groupe", 5) { mc ->
             check("réduction -20 % sur les 2 émotes cochées", true)
             check("menu refermé après l'action", editor(mc).menu == null)
-            editor(mc).bulk(EmoteEditorBulkPayload.Action.CATEGORY, categoryId = gesturesId())
-        }
-        waitFor("catégorie appliquée", 10) { bothTestEmotes { it.categoryId == gesturesId() } }
-        then("dépublier en groupe", 5) { mc ->
-            check("catégorie « Gestes » sur les 2 émotes", true)
             editor(mc).bulk(EmoteEditorBulkPayload.Action.UNPUBLISH)
         }
         waitFor("dépubliées", 10) { bothTestEmotes { !it.published } }
@@ -696,20 +756,35 @@ object SelfTest {
             editor(mc).applyBulkNew(remove = true)
         }
         waitFor("badge retiré", 10) { bothTestEmotes { !it.isNew(System.currentTimeMillis()) } }
-        then("catégories de l'éditeur", 20) { mc ->
+        then("onglet boutique", 20) { mc ->
             check("badge NEW retiré des 2 émotes", true)
             check("sélection gardée entre les actions", editor(mc).selection.size == 2)
-            editor(mc).clearSelection()
-            editor(mc).tab = EmoteEditorViewModel.Tab.CATEGORIES
-        }
-        then("capture catégories", 5) { mc -> shot(mc, "15-editeur-categories") }
-        then("onglet boutique", 20) { mc ->
             val vm = editor(mc)
+            vm.clearSelection()
             vm.loadShopFields()
             vm.tab = EmoteEditorViewModel.Tab.SHOP
         }
-        then("capture réglages", 5) { mc ->
+        then("fichiers lourds", 5) { _ ->
+            // L'import réduit déjà les icônes : on remet de grosses icônes directement en base, comme
+            // celles ajoutées avant cette version.
+            HEAVY.forEach { makeHeavy(it) }
+        }
+        waitFor("fichiers lourds en base", 10) { pending.get() == 0 && onServer { HEAVY.all { ServerEmoteCatalog.listings[id(it)]!!.fileSize > 1024 * 1024 } } }
+        then("capture réglages", 20) { mc ->
+            check("3 émotes de plus de 1 Mo avant l'allègement (${heavyFiles() / 1024} Ko)", heavyFiles() > 3 * 1024 * 1024)
             shot(mc, "16-editeur-boutique")
+            heavyBefore = heavyFiles()
+            editor(mc).shrinkIcons()
+        }
+        waitFor("icônes allégées", 15) { onServer { HEAVY.all { ServerEmoteCatalog.listings[id(it)]!!.fileSize < 200 * 1024 } } }
+        then("icônes vérifiées", 10) { mc ->
+            val after = heavyFiles()
+            check("« Alléger les icônes » : ${heavyBefore / 1024} Ko → ${after / 1024} Ko (Honored One, moonwalk, Breakdance)", after < heavyBefore / 3)
+            check("animations intactes après l'allègement", onServer { HEAVY.all { ServerEmoteCatalog.animationOf(id(it)) != null } })
+            check("bouton « Alléger les icônes » revenu au repos", !editor(mc).shrinking)
+        }
+        then("capture allègement", 5) { mc ->
+            shot(mc, "16b-editeur-icones")
             val vm = editor(mc)
             vm.promoPercent = "30"
             vm.promoDays = "1"
@@ -753,23 +828,64 @@ object SelfTest {
 
     private fun testFile(mc: Minecraft, name: String): Path = mc.gameDirectory.toPath().resolve("selftest").resolve("$name.emotecraft")
 
-    /** Une copie de Griddy sous un autre identifiant, écrite dans run/selftest/[name].emotecraft. */
-    private fun writeTestEmote(mc: Minecraft, name: String): UUID {
+    /** Une copie de Griddy sous un autre identifiant (avec [icon]), écrite dans run/selftest/[name].emotecraft. */
+    private fun writeTestEmote(mc: Minecraft, name: String, icon: ByteArray? = null): UUID {
         val source = EmoteHolder.list[id("griddy")]!!.emote.mutableCopy()
         val newId = UUID.randomUUID()
         source.uuid = newId
         source.name = "\"$name\""
         val file = testFile(mc, name)
         Files.createDirectories(file.parent)
-        Files.write(file, EmoteFiles.toBinary(source.build()))
+        val animation = source.build().let { if (icon != null) EmoteFiles.withIcon(it, icon) else it }
+        Files.write(file, EmoteFiles.toBinary(animation))
         return newId
+    }
+
+    /** Du bruit : une image qui ne se compresse pas, pour dépasser les anciennes limites de taille. */
+    private fun noise(width: Int, height: Int, type: Int): BufferedImage {
+        val image = BufferedImage(width, height, type)
+        val random = java.util.Random(42)
+        for (y in 0 until height) for (x in 0 until width) image.setRGB(x, y, random.nextInt() or (0xFF shl 24))
+        return image
+    }
+
+    private fun noisePng(width: Int, height: Int): ByteArray =
+        ByteArrayOutputStream().also { ImageIO.write(noise(width, height, BufferedImage.TYPE_INT_ARGB), "png", it) }.toByteArray()
+
+    private fun noiseJpeg(width: Int, height: Int): ByteArray =
+        ByteArrayOutputStream().also { ImageIO.write(noise(width, height, BufferedImage.TYPE_INT_RGB), "jpg", it) }.toByteArray()
+
+    /** Les émotes de test aux plus grosses icônes. */
+    private val HEAVY = listOf("honored", "moonwalk", "flare")
+
+    private fun heavyFiles(): Long = onServer { HEAVY.sumOf { ServerEmoteCatalog.listings[id(it)]!!.fileSize.toLong() } }
+
+    /** Remet à l'émote une icône de 900 px non réduite, directement en base (sans passer par l'éditeur). */
+    private fun makeHeavy(part: String) {
+        pending.incrementAndGet()
+        val server = Minecraft.getInstance().singleplayerServer!!
+        server.execute {
+            val listing = ServerEmoteCatalog.listings[id(part)]!!
+            val file = EmoteFiles.toBinary(EmoteFiles.withIcon(ServerEmoteCatalog.animationOf(listing.id)!!, noisePng(900, 900)))
+            val heavy = listing.copy(fileSha256 = EmoteFiles.sha256(file), fileSize = file.size)
+            ServerEmoteCatalog.storage!!.saveListing(heavy, file, null).thenAccept {
+                server.execute { ServerEmoteCatalog.reload { pending.decrementAndGet() } }
+            }
+        }
+    }
+
+    private val testShopHost = object : EmoteShopHost {
+        override val crystals: Long get() = 0
+        override fun onCrystalsChanged(balance: Long) {}
+        override val overlayOpen: Boolean get() = false
+
+        @Composable
+        override fun CrystalIcon(sizeDp: Float) {}
     }
 
     private fun bothTestEmotes(condition: (EmoteListing) -> Boolean): Boolean = onServer {
         listOf(testEmoteId!!, testEmoteId2!!).all { id -> ServerEmoteCatalog.listings[id]?.let(condition) == true }
     }
-
-    private fun gesturesId(): String = onServer { ServerEmoteCatalog.categories.first { it.name == "Gestes" }.id }
 
     private fun byName(part: String): EmoteListing = ClientEmoteCatalog.listings.first { it.name.lowercase().contains(part) }
 
@@ -907,6 +1023,7 @@ object SelfTest {
         deleteTree(config.resolve("local"))
         Files.deleteIfExists(config.resolve("emotes.json"))
         deleteTree(config.resolve("import"))
+        Files.deleteIfExists(config.resolve("vues.json"))
         deleteTree(mc.gameDirectory.toPath().resolve("cache").resolve("cobblelegacy-emotes"))
         deleteTree(mc.gameDirectory.toPath().resolve("screenshots"))
         val import = config.resolve("import")

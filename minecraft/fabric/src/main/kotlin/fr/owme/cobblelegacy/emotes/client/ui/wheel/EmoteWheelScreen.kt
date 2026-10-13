@@ -34,6 +34,7 @@ import com.mojang.blaze3d.platform.InputConstants
 import dev.aperso.composite.core.ComposeScreen
 import fr.owme.cobblelegacy.emotes.client.ClientEmoteCatalog
 import fr.owme.cobblelegacy.emotes.client.EmoteLibrary
+import fr.owme.cobblelegacy.emotes.client.EmoteSeen
 import fr.owme.cobblelegacy.emotes.client.WheelConfig
 import fr.owme.cobblelegacy.emotes.client.preview.EmotePlayerPreview
 import fr.owme.cobblelegacy.emotes.client.ui.ComposeEmoteScreens
@@ -270,7 +271,11 @@ private fun EmoteWheelContent(vm: WheelViewModel) {
                 EmoteWheel(
                     slots = slots,
                     hovered = vm.hovered,
-                    onHover = { vm.hovered = it },
+                    onHover = { slot ->
+                        vm.hovered = slot
+                        // Survolée : son badge NEW s'en va.
+                        slot?.let { slots.getOrNull(it)?.entry }?.let { EmoteSeen.markSeen(it.id) }
+                    },
                     onClick = { slot, secondary -> if (vm.click(slot, secondary)) Minecraft.getInstance().setScreen(null) },
                     size = wheelSize,
                     accent = accent

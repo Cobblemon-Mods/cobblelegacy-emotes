@@ -42,6 +42,12 @@ interface EmoteStorage {
 
     /** Remplace plusieurs émotes d'un coup, sans toucher à leurs fichiers (actions groupées). */
     fun saveListings(listings: List<EmoteListing>): CompletableFuture<Boolean>
+
+    /**
+     * Nouveau fichier pour l'émote [id], seulement si elle a encore [expectedSha] (rien d'autre ne change) ;
+     * l'ancien fichier est supprimé. `true` si le fichier a été remplacé.
+     */
+    fun replaceFile(id: UUID, expectedSha: String, sha: String, file: ByteArray): CompletableFuture<Boolean>
     fun deleteListing(id: UUID): CompletableFuture<Boolean> = deleteListings(listOf(id))
     fun deleteListings(ids: Collection<UUID>): CompletableFuture<Boolean>
     fun saveSortOrders(orders: Map<UUID, Int>): CompletableFuture<Boolean>

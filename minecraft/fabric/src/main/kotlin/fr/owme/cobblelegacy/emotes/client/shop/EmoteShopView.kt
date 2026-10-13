@@ -40,7 +40,6 @@ private val TextMuted = Color(0x59FFFFFF)
 private val TextSoft = Color(0x99FFFFFF)
 
 private val CARD_MIN_WIDTH = 118.dp
-private val CATEGORY_MIN_WIDTH = 210.dp
 private val GRID_GAP = 10.dp
 
 /** La boutique d'émotes, hébergée par le Pokématos ou par [EmoteShopScreen]. */
@@ -96,102 +95,40 @@ private fun ShopTopBar(vm: EmoteShopViewModel) {
             }
         }
         Spacer(Modifier.width(10.dp))
-        ModeToggle(vm)
-        Spacer(Modifier.width(10.dp))
         SearchField(vm.query, vm::updateQuery, EmotesI18n.t("shop.search"), ShopAccent, Modifier.width(190.dp))
-    }
-}
-
-@Composable
-private fun ModeToggle(vm: EmoteShopViewModel) {
-    Row(
-        modifier = Modifier
-            .clip(RoundedCornerShape(10.dp))
-            .background(Color(0x08FFFFFF))
-            .border(1.dp, Border, RoundedCornerShape(10.dp))
-            .padding(3.dp),
-        horizontalArrangement = Arrangement.spacedBy(3.dp)
-    ) {
-        ModeSegment(Icons.Outlined.FolderCopy, EmotesI18n.t("shop.mode.categories"), vm.mode == EmoteShopViewModel.Mode.CATEGORIES && !vm.searching) {
-            vm.clearQuery()
-            vm.selectMode(EmoteShopViewModel.Mode.CATEGORIES)
-        }
-        ModeSegment(Icons.Outlined.Apps, EmotesI18n.t("shop.mode.all"), vm.mode == EmoteShopViewModel.Mode.ALL && !vm.searching) {
-            vm.clearQuery()
-            vm.selectMode(EmoteShopViewModel.Mode.ALL)
-        }
-    }
-}
-
-@Composable
-private fun ModeSegment(icon: ImageVector, label: String, active: Boolean, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .clip(RoundedCornerShape(8.dp))
-            .background(if (active) ShopAccent.copy(alpha = 0.14f) else Color.Transparent)
-            .border(1.dp, if (active) ShopAccent.copy(alpha = 0.3f) else Color.Transparent, RoundedCornerShape(8.dp))
-            .clickable { onClick() }
-            .padding(horizontal = 10.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
-    ) {
-        Icon(icon, null, tint = if (active) ShopAccent else TextMuted, modifier = Modifier.size(12.dp))
-        Text(label, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = if (active) Color.White else TextSoft, maxLines = 1)
     }
 }
 
 // ─── Catalogue ───────────────────────────────────────────────────────────────────
 
+/** Toutes les émotes en cartes, les nouveautés en tête. */
 @Composable
 private fun Catalog(vm: EmoteShopViewModel, host: EmoteShopHost, glVisible: () -> Boolean) {
-    val openCategory = vm.openCategory
-    val viewKey = when {
-        vm.searching -> "search"
-        vm.mode == EmoteShopViewModel.Mode.ALL -> "all"
-        openCategory != null -> "category:${openCategory.id}"
-        else -> "root"
-    }
-    key(viewKey) {
+    key(vm.searching) {
         Column(
             modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             if (vm.promoActive && !vm.searching) PromoBanner(vm)
             if (!vm.shopOpen) Notice(EmotesI18n.t("shop.closed"), EmotesTheme.Warning)
-            when {
-                vm.searching -> {
-                    val results = vm.visibleEntries
-                    SectionTitle(EmotesI18n.t("shop.search.results", results.size, vm.query.trim()))
-                    if (results.isEmpty()) EmptyState(Icons.Outlined.SearchOff, EmotesI18n.t("shop.search.empty"))
-                    else EmoteGrid(vm, host, results, glVisible)
-                }
-                vm.mode == EmoteShopViewModel.Mode.ALL -> {
-                    val all = vm.visibleEntries
-                    SectionTitle(EmotesI18n.t("shop.all.title", all.size))
-                    if (all.isEmpty()) EmptyState(Icons.Outlined.EmojiPeople, EmotesI18n.t("shop.empty"))
-                    else EmoteGrid(vm, host, all, glVisible)
-                }
-                openCategory != null -> {
-                    CategoryHeader(vm, openCategory)
-                    EmoteGrid(vm, host, vm.visibleEntries, glVisible)
-                }
-                else -> {
-                    val fresh = vm.newEntries
-                    if (fresh.isNotEmpty()) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            NewBadge(fontSize = 8.sp)
-                            Spacer(Modifier.width(8.dp))
-                            SectionTitle(EmotesI18n.t("shop.new.title", fresh.size))
-                        }
-                        EmoteGrid(vm, host, fresh, glVisible)
-                    }
-                    val categories = vm.categories
-                    SectionTitle(EmotesI18n.t("shop.categories.title"))
-                    if (categories.isEmpty()) EmptyState(Icons.Outlined.EmojiPeople, EmotesI18n.t("shop.empty"))
-                    else ResponsiveGrid(categories, CATEGORY_MIN_WIDTH, GRID_GAP) { category, cardModifier ->
-                        CategoryCard(vm, host, category, cardModifier)
+            val emotes = vm.visibleEntries
+            if (vm.searching) {
+                SectionTitle(EmotesI18n.t("shop.search.results", emotes.size, vm.query.trim()))
+                if (emotes.isEmpty()) EmptyState(Icons.Outlined.SearchOff, EmotesI18n.t("shop.search.empty"))
+                else EmoteGrid(vm, host, emotes, glVisible)
+            } else {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    SectionTitle(EmotesI18n.t("shop.all.title", emotes.size))
+                    val fresh = vm.newCount
+                    if (fresh > 0) {
+                        Spacer(Modifier.width(8.dp))
+                        NewBadge(fontSize = 8.sp)
+                        Spacer(Modifier.width(5.dp))
+                        Text(EmotesI18n.t("shop.new.count", fresh), fontSize = 9.sp, color = TextMuted)
                     }
                 }
+                if (emotes.isEmpty()) EmptyState(Icons.Outlined.EmojiPeople, EmotesI18n.t("shop.empty"))
+                else EmoteGrid(vm, host, emotes, glVisible)
             }
             Spacer(Modifier.height(4.dp))
         }
@@ -233,64 +170,6 @@ private fun EmptyState(icon: ImageVector, text: String) {
     ) {
         Icon(icon, null, tint = Color(0x33FFFFFF), modifier = Modifier.size(28.dp))
         Text(text, fontSize = 11.sp, color = TextMuted, textAlign = TextAlign.Center)
-    }
-}
-
-// ─── Catégories ──────────────────────────────────────────────────────────────────
-
-@Composable
-private fun CategoryCard(vm: EmoteShopViewModel, host: EmoteShopHost, category: EmoteShopViewModel.ShopCategory, modifier: Modifier) {
-    val shape = RoundedCornerShape(12.dp)
-    val newCount = category.entries.count { it.isNew }
-    Column(
-        modifier = modifier
-            .clip(shape)
-            .background(Surface)
-            .border(1.dp, ShopAccent.copy(alpha = 0.18f), shape)
-            .clickable { vm.openCategory(category.id) }
-            .padding(10.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        // Aperçu : les premières émotes de la catégorie.
-        Row(
-            modifier = Modifier.fillMaxWidth().height(70.dp).padding(4.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally)
-        ) {
-            category.entries.take(4).forEach { entry ->
-                EmoteThumbnail(entry, Modifier.fillMaxHeight().aspectRatio(1f), locked = false)
-            }
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Outlined.Folder, null, tint = ShopAccent, modifier = Modifier.size(13.dp))
-            Spacer(Modifier.width(6.dp))
-            Text(category.name, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            if (newCount > 0) {
-                NewBadge()
-                Spacer(Modifier.width(4.dp))
-            }
-            Icon(Icons.Outlined.ChevronRight, null, tint = TextMuted, modifier = Modifier.size(14.dp))
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(EmotesI18n.t("shop.count", category.entries.size), fontSize = 9.sp, color = TextMuted)
-            Spacer(Modifier.weight(1f))
-            vm.minPriceOf(category)?.let { minPrice ->
-                Text(EmotesI18n.t("shop.from") + " ", fontSize = 9.sp, color = TextMuted)
-                PriceTag(minPrice, 10.sp) { host.CrystalIcon(it) }
-            }
-        }
-    }
-}
-
-@Composable
-private fun CategoryHeader(vm: EmoteShopViewModel, category: EmoteShopViewModel.ShopCategory) {
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-        BackButton(EmotesI18n.t("shop.categories.back")) { vm.closeCategory() }
-        Spacer(Modifier.width(12.dp))
-        Icon(Icons.Outlined.Folder, null, tint = ShopAccent, modifier = Modifier.size(15.dp))
-        Spacer(Modifier.width(6.dp))
-        Text(category.name, fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Spacer(Modifier.width(8.dp))
-        Text(EmotesI18n.t("shop.count", category.entries.size), fontSize = 10.sp, color = TextMuted)
     }
 }
 
@@ -420,7 +299,6 @@ private fun EmoteDetail(vm: EmoteShopViewModel, host: EmoteShopHost, entry: Emot
             if (entry.description.isNotBlank()) Text(entry.description, fontSize = 10.sp, color = TextSoft)
             Spacer(Modifier.height(2.dp))
 
-            vm.categoryName(entry)?.let { InfoRow(Icons.Outlined.Folder, EmotesI18n.t("collection.detail.category"), it) }
             if (entry.author.isNotBlank()) InfoRow(Icons.Outlined.Person, EmotesI18n.t("collection.detail.author"), entry.author)
             InfoRow(
                 Icons.Outlined.Timer, EmotesI18n.t("collection.detail.duration"),
