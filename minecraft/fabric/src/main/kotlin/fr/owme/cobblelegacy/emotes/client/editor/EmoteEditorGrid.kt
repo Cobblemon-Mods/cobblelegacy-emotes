@@ -204,9 +204,10 @@ private fun ListingCard(vm: EmoteEditorViewModel, listing: EmoteListing) {
                 if (discount > 0) PromoBadge(discount)
                 if (listing.isNew(now)) NewBadge()
             }
-            Spacer(Modifier.height(6.dp))
-            EmoteThumbnail(EmoteLibrary.entry(listing.id), Modifier.size(56.dp))
-            Spacer(Modifier.height(6.dp))
+            // L'icône occupe la place libre ; nom, rareté et prix en bas de la carte.
+            Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                EmoteThumbnail(EmoteLibrary.entry(listing.id), Modifier.size(64.dp))
+            }
             Text(
                 listing.name, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = EmotesTheme.TextPrimary,
                 maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()
@@ -225,15 +226,6 @@ private fun ListingCard(vm: EmoteEditorViewModel, listing: EmoteListing) {
                     )
                 }
             }
-        }
-        // Publier ou dépublier d'un clic, sans ouvrir le panneau.
-        if (hovered && !selecting) {
-            QuickButton(
-                EmotesI18n.t(if (listing.published) "editor.quick.unpublish" else "editor.quick.publish"),
-                if (listing.published) EmotesTheme.Warning else EmotesTheme.ShopAccent,
-                filled = !listing.published,
-                modifier = Modifier.align(Alignment.BottomCenter)
-            ) { vm.quickPublish(listing.id, !listing.published) }
         }
     }
 }
@@ -255,11 +247,11 @@ private fun DraftCard(vm: EmoteEditorViewModel, draft: EmoteEditorViewModel.Draf
             Row(Modifier.fillMaxWidth().height(16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Pill(EmotesI18n.t("editor.draft.badge"), DraftViolet)
             }
-            Spacer(Modifier.height(6.dp))
-            Box(Modifier.size(56.dp).clip(RoundedCornerShape(12.dp)).background(DraftViolet.copy(alpha = 0.08f)), contentAlignment = Alignment.Center) {
-                DraftIcon(draft, 50.dp)
+            Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                Box(Modifier.size(64.dp).clip(RoundedCornerShape(12.dp)).background(DraftViolet.copy(alpha = 0.08f)), contentAlignment = Alignment.Center) {
+                    DraftIcon(draft, 58.dp)
+                }
             }
-            Spacer(Modifier.height(6.dp))
             Text(
                 draft.parsed.name.ifBlank { draft.fileName }, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = EmotesTheme.TextPrimary,
                 maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()

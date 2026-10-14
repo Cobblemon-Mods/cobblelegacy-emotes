@@ -187,14 +187,14 @@ class EmoteEditorViewModel(initialSelection: UUID?) {
             return ClientEmoteCatalog.listings
         }
 
-    /** La grille : recherche (nom, auteur), filtres et tri appliqués. */
+    /** La grille : recherche par nom, filtres et tri appliqués. */
     val visibleListings: List<EmoteListing>
         get() {
             observe()
             val now = System.currentTimeMillis()
             val needle = normalizeSearch(query)
             val filtered = ClientEmoteCatalog.listings.filter { listing ->
-                val matches = needle.isEmpty() || normalizeSearch(listing.name).contains(needle) || normalizeSearch(listing.author).contains(needle)
+                val matches = needle.isEmpty() || normalizeSearch(listing.name).contains(needle)
                 matches && matchesStatus(listing, statusFilter, now)
             }
             return when (sort) {
@@ -527,12 +527,6 @@ class EmoteEditorViewModel(initialSelection: UUID?) {
         val id = selectedId ?: return
         drafts.removeAll { it.id == id }
         closePanel()
-    }
-
-    /** Publier ou repasser en brouillon depuis la carte, sans ouvrir le panneau. */
-    fun quickPublish(id: UUID, publish: Boolean) {
-        if (!ClientPlayNetworking.canSend(EmoteEditorActionPayload.TYPE)) return toast(EmotesI18n.t("editor.error.server"), false)
-        ClientPlayNetworking.send(EmoteEditorActionPayload(if (publish) EmoteEditorActionPayload.Action.PUBLISH else EmoteEditorActionPayload.Action.UNPUBLISH, id))
     }
 
     // ─── Sélection multiple et actions groupées ───────────────────────────────────

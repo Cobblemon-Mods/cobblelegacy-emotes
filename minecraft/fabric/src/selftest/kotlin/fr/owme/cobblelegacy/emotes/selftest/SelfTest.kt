@@ -106,6 +106,9 @@ object SelfTest {
     /** La course de Naruto du dossier de test (nom en russe). */
     private const val NARUTO = "наруто"
 
+    /** L'émote légendaire à 2500 cristaux que le joueur achète puis joue. */
+    private const val LEGENDARY = "reverential"
+
     private var stage = 0
     private var wait = 0
     private var ticks = 0
@@ -270,13 +273,13 @@ object SelfTest {
                 val name = listing.name.lowercase()
                 val category = when {
                     listOf("sit", "lay", "lie", "throne", "campfire").any { name.contains(it) } -> poses
-                    listOf("dance", "griddy", "macarena", "moonwalk", "flare", "dab", "rat", "run").any { name.contains(it) } -> dances
+                    listOf("dance", "griddy", "macarena", "flare", "dab", "rat", "run").any { name.contains(it) } -> dances
                     else -> gestures
                 }
                 var payload = saveOf(listing).copy(categoryId = category, published = true, price = 500)
                 when {
                     name.contains("griddy") -> payload = payload.copy(rarity = EmoteRarity.RARE, price = 800)
-                    name.contains("moonwalk") -> payload = payload.copy(rarity = EmoteRarity.LEGENDAIRE, price = 2500)
+                    name.contains(LEGENDARY) -> payload = payload.copy(rarity = EmoteRarity.LEGENDAIRE, price = 2500)
                     name.contains("macarena") -> payload = payload.copy(rarity = EmoteRarity.EPIQUE, price = 600, discountPercent = 25, discountDurationMs = 3 * EmoteShopSettings.DAY_MS)
                     name.contains("blow kiss") -> payload = payload.copy(access = EmoteAccess.FREE, price = 0)
                     name.contains("honored") -> payload = payload.copy(access = EmoteAccess.EXCLUSIVE, price = 0, rarity = EmoteRarity.LEGACY)
@@ -445,23 +448,23 @@ object SelfTest {
         then("exclusive", 10) { _ ->
             val result = shopResults.removeLast()
             check("émote exclusive non vendue (« ${result.message} »)", !result.success)
-            buy("moonwalk", 2500)
+            buy(LEGENDARY, 2500)
         }
-        waitFor("réponse moonwalk") { shopResults.isNotEmpty() }
-        then("moonwalk achetée", 10) { _ ->
+        waitFor("réponse légendaire") { shopResults.isNotEmpty() }
+        then("légendaire achetée", 10) { _ ->
             val result = shopResults.removeLast()
-            check("moonwalk achetée (« ${result.message} »)", result.success)
+            check("émote légendaire achetée (« ${result.message} »)", result.success)
         }
-        waitFor("moonwalk débloquée côté client", 5) { EmoteLibrary.entry(id("moonwalk"))?.unlocked == true }
-        then("jouer la moonwalk (grosse émote)", 15) { _ ->
-            val full = animation("moonwalk")
-            logger.info("SELFTEST moonwalk : paquet complet {} o, allégé {} o", EmoteFiles.streamSize(full), EmoteFiles.streamSize(EmoteFiles.stubOf(full)))
-            check("la moonwalk se lance", ClientEmotePlay.clientStartLocalEmote(full))
+        waitFor("légendaire débloquée côté client", 5) { EmoteLibrary.entry(id(LEGENDARY))?.unlocked == true }
+        then("jouer la légendaire", 15) { _ ->
+            val full = animation(LEGENDARY)
+            logger.info("SELFTEST légendaire : paquet complet {} o, allégé {} o", EmoteFiles.streamSize(full), EmoteFiles.streamSize(EmoteFiles.stubOf(full)))
+            check("la légendaire se lance", ClientEmotePlay.clientStartLocalEmote(full))
         }
-        then("moonwalk côté serveur", 5) { mc ->
+        then("légendaire côté serveur", 5) { mc ->
             val played = onServer { ServerEmoteAPI.getPlayedEmote(mc.player!!.uuid) }
-            check("le serveur diffuse la moonwalk (trop grosse pour Emotecraft d'origine)", played?.left?.uuid == id("moonwalk"))
-            check("le joueur la joue avec l'animation complète", mc.player!!.`emotecraft$getEmote`()?.data?.let { it.uuid == id("moonwalk") && it.extraData[EmoteFiles.STUB_MARKER] != true } == true)
+            check("le serveur diffuse la légendaire en version allégée", played?.left?.uuid == id(LEGENDARY))
+            check("le joueur la joue avec l'animation complète", mc.player!!.`emotecraft$getEmote`()?.data?.let { it.uuid == id(LEGENDARY) && it.extraData[EmoteFiles.STUB_MARKER] != true } == true)
             ClientEmotePlay.clientStopLocalEmote()
             EmoteClientEvents.shopListener = null
         }
@@ -469,10 +472,10 @@ object SelfTest {
         // ── Roue ──
         then("préparer la roue", 5) { _ ->
             WheelConfig.page = 0
-            listOf("griddy", "blow kiss", "macarena", "moonwalk", "hug").forEachIndexed { slot, name -> WheelConfig.set(0, slot, id(name)) }
+            listOf("griddy", "blow kiss", "macarena", LEGENDARY, "hug").forEachIndexed { slot, name -> WheelConfig.set(0, slot, id(name)) }
             WheelConfig.set(0, 5, null)
             WheelConfig.set(0, 6, null)
-            WheelConfig.set(0, 7, ids.values.first { it !in listOf("griddy", "blow kiss", "macarena", "moonwalk", "hug").map(::id) })
+            WheelConfig.set(0, 7, ids.values.first { it !in listOf("griddy", "blow kiss", "macarena", LEGENDARY, "hug").map(::id) })
         }
         then("ouvrir la roue", 30) { _ -> ComposeEmoteScreens.openWheel() }
         then("capture roue", 5) { mc ->
@@ -526,9 +529,9 @@ object SelfTest {
             check("ouverte dans la collection : plus de badge NEW", !EmoteSeen.isNew(EmoteLibrary.entry(id("macarena"))!!))
             val seen = mc.gameDirectory.toPath().resolve("config").resolve("cobblelegacy-emotes").resolve("vues.json")
             check("émotes vues gardées dans vues.json", Files.isRegularFile(seen) && Files.readString(seen).contains(id("macarena").toString()))
-            vm.select(id("moonwalk"))
+            vm.select(id(LEGENDARY))
         }
-        then("collection : verrouillée", 20) { mc -> shot(mc, "06-collection-moonwalk") }
+        then("collection : verrouillée", 20) { mc -> shot(mc, "06-collection-legendaire") }
         then("collection : émote verrouillée", 20) { mc ->
             (mc.screen as EmoteCollectionScreen).vm.select(id("breakdance"))
         }
@@ -779,7 +782,7 @@ object SelfTest {
         waitFor("icônes allégées", 15) { onServer { HEAVY.all { ServerEmoteCatalog.listings[id(it)]!!.fileSize < 200 * 1024 } } }
         then("icônes vérifiées", 10) { mc ->
             val after = heavyFiles()
-            check("« Alléger les icônes » : ${heavyBefore / 1024} Ko → ${after / 1024} Ko (Honored One, moonwalk, Breakdance)", after < heavyBefore / 3)
+            check("« Alléger les icônes » : ${heavyBefore / 1024} Ko → ${after / 1024} Ko (Honored One, Reverential Bow, Breakdance)", after < heavyBefore / 3)
             check("animations intactes après l'allègement", onServer { HEAVY.all { ServerEmoteCatalog.animationOf(id(it)) != null } })
             check("bouton « Alléger les icônes » revenu au repos", !editor(mc).shrinking)
         }
@@ -856,7 +859,7 @@ object SelfTest {
         ByteArrayOutputStream().also { ImageIO.write(noise(width, height, BufferedImage.TYPE_INT_RGB), "jpg", it) }.toByteArray()
 
     /** Les émotes de test aux plus grosses icônes. */
-    private val HEAVY = listOf("honored", "moonwalk", "flare")
+    private val HEAVY = listOf("honored", LEGENDARY, "flare")
 
     private fun heavyFiles(): Long = onServer { HEAVY.sumOf { ServerEmoteCatalog.listings[id(it)]!!.fileSize.toLong() } }
 

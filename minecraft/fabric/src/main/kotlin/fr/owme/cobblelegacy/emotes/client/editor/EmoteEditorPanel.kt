@@ -364,7 +364,6 @@ private fun FormTab(label: String, selected: Boolean, changed: Boolean, onClick:
 private fun InfosTab(vm: EmoteEditorViewModel, form: Form) {
     EditorField(EmotesI18n.t("editor.field.name"), form.name, { v -> vm.update { it.copy(name = v.take(EmoteListing.MAX_NAME_LENGTH)) } })
     EditorField(EmotesI18n.t("editor.field.description"), form.description, { v -> vm.update { it.copy(description = v.take(EmoteListing.MAX_DESCRIPTION_LENGTH)) } })
-    EditorField(EmotesI18n.t("editor.field.author"), form.author, { v -> vm.update { it.copy(author = v.take(EmoteListing.MAX_AUTHOR_LENGTH)) } })
 
     FieldLabel(EmotesI18n.t("editor.field.rarity"))
     ChipRow {
