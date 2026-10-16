@@ -118,8 +118,8 @@ sourceSets {
 
 kotlin.target.compilations.selftest.associateWith(kotlin.target.compilations.main)
 
-// Émotes de test : le dossier selftest-emotes à côté du dépôt s'il existe (stable), sinon Téléchargements.
-def selftestEmotes = file("${rootDir}/../selftest-emotes")
+// Émotes de test : le dossier selftest-emotes du dépôt (ignoré par git) s'il existe, sinon Téléchargements.
+def selftestEmotes = file("${rootDir}/selftest-emotes")
 
 loom {
     runs {

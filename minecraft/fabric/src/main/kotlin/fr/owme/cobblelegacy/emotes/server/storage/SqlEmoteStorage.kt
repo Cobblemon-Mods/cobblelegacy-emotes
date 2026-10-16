@@ -94,13 +94,17 @@ class SqlEmoteStorage(private val settings: DatabaseSettings) : EmoteStorage {
                     added_at         BIGINT       NOT NULL,
                     created_by       CHAR(36)     NULL,
                     updated_at       TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                    playable_while_moving BOOLEAN NOT NULL DEFAULT FALSE
+                    playable_while_moving BOOLEAN NOT NULL DEFAULT FALSE,
+                    speed_percent    INT          NOT NULL DEFAULT 100
                 )
                 """.trimIndent()
             )
             // Ajoutée après la première version : les tables déjà créées la reçoivent ici.
             statement.executeUpdate(
                 "ALTER TABLE ${PREFIX}catalog ADD COLUMN IF NOT EXISTS playable_while_moving BOOLEAN NOT NULL DEFAULT FALSE"
+            )
+            statement.executeUpdate(
+                "ALTER TABLE ${PREFIX}catalog ADD COLUMN IF NOT EXISTS speed_percent INT NOT NULL DEFAULT 100"
             )
             statement.executeUpdate(
                 """
@@ -228,7 +232,8 @@ class SqlEmoteStorage(private val settings: DatabaseSettings) : EmoteStorage {
             loops = rows.getBoolean("loops"),
             hasIcon = rows.getBoolean("has_icon"),
             addedAtMs = rows.getLong("added_at"),
-            playableWhileMoving = rows.getBoolean("playable_while_moving")
+            playableWhileMoving = rows.getBoolean("playable_while_moving"),
+            speedPercent = rows.getInt("speed_percent")
         )
     } catch (e: Exception) {
         logger.warn("[Émotes] Ligne de catalogue illisible ignorée : {}", e.message)
@@ -303,14 +308,15 @@ class SqlEmoteStorage(private val settings: DatabaseSettings) : EmoteStorage {
             """
             INSERT INTO ${PREFIX}catalog (id, name, description, author, category_id, rarity, access, price,
                 discount_percent, discount_ends_at, published, new_until, sort_order, file_sha256, file_size,
-                duration_ticks, loops, has_icon, added_at, created_by, playable_while_moving)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                duration_ticks, loops, has_icon, added_at, created_by, playable_while_moving, speed_percent)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON DUPLICATE KEY UPDATE name = VALUES(name), description = VALUES(description), author = VALUES(author),
                 category_id = VALUES(category_id), rarity = VALUES(rarity), access = VALUES(access), price = VALUES(price),
                 discount_percent = VALUES(discount_percent), discount_ends_at = VALUES(discount_ends_at),
                 published = VALUES(published), new_until = VALUES(new_until), sort_order = VALUES(sort_order),
                 file_sha256 = VALUES(file_sha256), file_size = VALUES(file_size), duration_ticks = VALUES(duration_ticks),
-                loops = VALUES(loops), has_icon = VALUES(has_icon), playable_while_moving = VALUES(playable_while_moving)
+                loops = VALUES(loops), has_icon = VALUES(has_icon), playable_while_moving = VALUES(playable_while_moving),
+                speed_percent = VALUES(speed_percent)
             """.trimIndent()
         ).use { statement ->
             listings.forEach { listing ->
@@ -335,6 +341,7 @@ class SqlEmoteStorage(private val settings: DatabaseSettings) : EmoteStorage {
                 statement.setLong(19, listing.addedAtMs)
                 statement.setString(20, author?.toString())
                 statement.setBoolean(21, listing.playableWhileMoving)
+                statement.setInt(22, listing.speedPercent)
                 statement.addBatch()
             }
             statement.executeBatch()

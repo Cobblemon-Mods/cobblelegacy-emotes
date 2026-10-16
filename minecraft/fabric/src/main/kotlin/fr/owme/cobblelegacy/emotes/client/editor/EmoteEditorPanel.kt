@@ -20,6 +20,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.input.pointer.PointerButton
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
@@ -49,6 +55,10 @@ import fr.owme.cobblelegacy.emotes.client.ui.*
 import fr.owme.cobblelegacy.emotes.network.EmoteEditorActionPayload
 import java.util.Date
 import java.util.UUID
+import kotlin.math.abs
+import kotlin.math.exp
+import kotlin.math.ln
+import kotlin.math.roundToInt
 
 /** Le joueur occupe un peu plus de place que dans la collection : le cadre est plus étroit. */
 private const val PREVIEW_FILL = 0.42f
@@ -225,6 +235,7 @@ private fun PreviewColumn(vm: EmoteEditorViewModel, form: Form?, modifier: Modif
                 paused = vm.previewPaused,
                 restartKey = vm.previewRestart,
                 onProgress = { progress.floatValue = it },
+                speed = form?.let { it.speedPercent / 100f },
                 modifier = Modifier.fillMaxSize()
             )
             if (animation == null) {
@@ -264,6 +275,44 @@ private fun PreviewColumn(vm: EmoteEditorViewModel, form: Form?, modifier: Modif
             }
         }
         PlaybackBar(vm, progress)
+        if (form != null) SpeedBar(vm, form)
+    }
+}
+
+/**
+ * La vitesse de l'émote, réglée en glissant la jauge (×1 au centre, ×0,25 à gauche, ×4 à droite).
+ * L'aperçu suit tout de suite ; tous les joueurs la verront à cette vitesse une fois enregistrée.
+ */
+@Composable
+private fun SpeedBar(vm: EmoteEditorViewModel, form: Form) {
+    val changed = form.speedPercent != EmoteListing.DEFAULT_SPEED
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(30.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(Color(0x0AFFFFFF))
+            .border(1.dp, if (changed) Amber.copy(alpha = 0.35f) else Color(0x0FFFFFFF), RoundedCornerShape(10.dp))
+            .padding(start = 8.dp, end = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Icon(Icons.Outlined.Speed, null, tint = if (changed) Amber else EmotesTheme.TextDim, modifier = Modifier.size(13.dp))
+        Text(
+            EmotesI18n.speed(form.speedPercent), fontSize = 9.sp, fontWeight = FontWeight.Bold,
+            color = if (changed) Amber else EmotesTheme.TextSoft, maxLines = 1, modifier = Modifier.widthIn(min = 30.dp)
+        )
+        SpeedSlider(form.speedPercent, { percent -> vm.update { it.copy(speedPercent = percent) } }, Modifier.weight(1f))
+        Box(
+            modifier = Modifier
+                .size(22.dp)
+                .clip(CircleShape)
+                .alpha(if (changed) 1f else 0.35f)
+                .clickable(enabled = changed) { vm.update { it.copy(speedPercent = EmoteListing.DEFAULT_SPEED) } },
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Outlined.RestartAlt, null, tint = EmotesTheme.TextSoft, modifier = Modifier.size(13.dp))
+        }
     }
 }
 
@@ -306,7 +355,7 @@ private fun PlaybackBar(vm: EmoteEditorViewModel, progress: State<Float>) {
                 }
         )
         Text(
-            info?.let { if (it.loops) EmotesI18n.t("collection.detail.loop") else EmotesI18n.animationLength(it.durationTicks) } ?: "—",
+            info?.let { if (it.loops) EmotesI18n.t("collection.detail.loop") else EmotesI18n.animationLength(playedTicks(it.durationTicks, vm.form)) } ?: "—",
             fontSize = 8.sp, color = EmotesTheme.TextDim, maxLines = 1, modifier = Modifier.padding(end = 6.dp)
         )
     }
@@ -511,7 +560,7 @@ private fun OptionsTab(vm: EmoteEditorViewModel, form: Form) {
     vm.selectedInfo?.let { info ->
         OptionCard {
             Text(EmotesI18n.t("editor.field.file"), fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = EmotesTheme.TextTitle)
-            FileRow(Icons.Outlined.Timer, EmotesI18n.t("editor.file.duration"), if (info.loops) EmotesI18n.t("collection.detail.loop") else EmotesI18n.animationLength(info.durationTicks))
+            FileRow(Icons.Outlined.Timer, EmotesI18n.t("editor.file.duration"), if (info.loops) EmotesI18n.t("collection.detail.loop") else EmotesI18n.animationLength(playedTicks(info.durationTicks, form)))
             (vm.draft(form.id)?.data?.size ?: listing?.fileSize)?.let { size ->
                 FileRow(Icons.Outlined.Description, EmotesI18n.t("editor.file.size"), EmotesI18n.t("editor.file.size_value", (size + 1023) / 1024))
             }
@@ -620,5 +669,77 @@ private fun FooterButton(label: String, color: Color, filled: Boolean, enabled: 
             .border(1.dp, color.copy(alpha = if (filled) 1f else 0.3f), RoundedCornerShape(8.dp))
             .clickable(enabled = enabled) { onClick() }
             .padding(horizontal = 11.dp, vertical = 7.dp)
+    )
+}
+
+/** Durée d'une lecture à la vitesse du formulaire. */
+private fun playedTicks(durationTicks: Int, form: Form?): Int =
+    Math.round(durationTicks * 100f / (form?.speedPercent ?: EmoteListing.DEFAULT_SPEED))
+
+/** Échelle logarithmique : ×1 au milieu, autant de place pour ralentir que pour accélérer. */
+private val SPEED_RANGE = ln(EmoteListing.MAX_SPEED.toDouble() / EmoteListing.MIN_SPEED)
+
+private fun speedToFraction(percent: Int): Float =
+    (ln(percent.toDouble() / EmoteListing.MIN_SPEED) / SPEED_RANGE).toFloat().coerceIn(0f, 1f)
+
+/** Par pas de 5 %, aimanté sur ×1. */
+private fun fractionToSpeed(fraction: Float): Int {
+    val raw = EmoteListing.MIN_SPEED * exp(SPEED_RANGE * fraction.coerceIn(0f, 1f))
+    val stepped = (raw / 5.0).roundToInt() * 5
+    return if (abs(stepped - EmoteListing.DEFAULT_SPEED) <= 5) EmoteListing.DEFAULT_SPEED
+    else stepped.coerceIn(EmoteListing.MIN_SPEED, EmoteListing.MAX_SPEED)
+}
+
+@OptIn(ExperimentalComposeUiApi::class)
+@Composable
+private fun SpeedSlider(percent: Int, onChange: (Int) -> Unit, modifier: Modifier) {
+    val fraction = speedToFraction(percent)
+    val center = speedToFraction(EmoteListing.DEFAULT_SPEED)
+    val change = rememberUpdatedState(onChange)
+    var width by remember { mutableIntStateOf(0) }
+    val thumb = 12.dp
+    val thumbPx = with(LocalDensity.current) { thumb.toPx() }
+    Box(
+        modifier = modifier
+            .fillMaxHeight()
+            .onSizeChanged { width = it.width }
+            .pointerInput(thumbPx) {
+                awaitPointerEventScope {
+                    var held = false
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val pointer = event.changes.firstOrNull() ?: continue
+                        val track = (size.width - thumbPx).coerceAtLeast(1f)
+                        fun select() = change.value(fractionToSpeed((pointer.position.x - thumbPx / 2f) / track))
+                        when (event.type) {
+                            PointerEventType.Press -> if (event.button == PointerButton.Primary) {
+                                held = true
+                                select()
+                                pointer.consume()
+                            }
+                            PointerEventType.Move -> if (held) {
+                                select()
+                                pointer.consume()
+                            }
+                            PointerEventType.Release -> held = false
+                            else -> {}
+                        }
+                    }
+                }
+            }
+            .drawBehind {
+                val line = 4.dp.toPx()
+                val y = size.height / 2f
+                val track = size.width - thumbPx
+                val from = thumbPx / 2f
+                drawRoundRect(Color(0x1FFFFFFF), Offset(from, y - line / 2f), Size(track, line), CornerRadius(line / 2f))
+                // De ×1 jusqu'au curseur : ralenti à gauche, accéléré à droite.
+                val a = from + track * minOf(center, fraction)
+                val b = from + track * maxOf(center, fraction)
+                if (b - a > 0.5f) drawRoundRect(Amber, Offset(a, y - line / 2f), Size(b - a, line), CornerRadius(line / 2f))
+                drawRect(Color(0x66FFFFFF), Offset(from + track * center - 0.5.dp.toPx(), y - 4.dp.toPx()), Size(1.dp.toPx(), 8.dp.toPx()))
+                drawCircle(Color.White, thumbPx / 2f, Offset(from + track * fraction, y))
+                drawCircle(Amber, thumbPx / 2f - 2.dp.toPx(), Offset(from + track * fraction, y))
+            }
     )
 }

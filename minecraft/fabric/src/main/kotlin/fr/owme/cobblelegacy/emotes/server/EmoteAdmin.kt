@@ -64,6 +64,9 @@ object EmoteAdmin {
         if (payload.price !in 0..EmoteShopSettings.MAX_PRICE) return done("Prix invalide.")
         if (payload.access == EmoteAccess.SHOP && payload.price <= 0) return done("Une émote en vente doit avoir un prix.")
         if (payload.discountPercent !in 0..EmoteShopSettings.MAX_PROMO_PERCENT) return done("La réduction doit être comprise entre 0 et ${EmoteShopSettings.MAX_PROMO_PERCENT} %.")
+        if (payload.speedPercent !in EmoteListing.MIN_SPEED..EmoteListing.MAX_SPEED) {
+            return done("La vitesse va de ${EmoteListing.MIN_SPEED} à ${EmoteListing.MAX_SPEED} %.")
+        }
 
         val discountEnd = when {
             payload.discountPercent == 0 || payload.discountDurationMs == 0L -> 0L
@@ -113,7 +116,8 @@ object EmoteAdmin {
             loops = parsed?.loops ?: base!!.loops,
             hasIcon = parsed?.hasIcon ?: base!!.hasIcon,
             addedAtMs = base?.addedAtMs ?: now,
-            playableWhileMoving = payload.playableWhileMoving
+            playableWhileMoving = payload.playableWhileMoving,
+            speedPercent = payload.speedPercent
         )
         commit(server, ServerEmoteCatalog.storage!!.saveListing(listing, file, author), "Enregistrement impossible.", done)
     }

@@ -57,6 +57,7 @@ internal object EmoteCodecs {
         buf.writeBoolean(listing.hasIcon)
         buf.writeVarLong((nowMs - listing.addedAtMs).coerceAtLeast(0))
         buf.writeBoolean(listing.playableWhileMoving)
+        buf.writeVarInt(listing.speedPercent)
     }
 
     fun readListing(buf: FriendlyByteBuf, nowMs: Long): EmoteListing = EmoteListing(
@@ -79,7 +80,8 @@ internal object EmoteCodecs {
         loops = buf.readBoolean(),
         hasIcon = buf.readBoolean(),
         addedAtMs = nowMs - buf.readVarLong(),
-        playableWhileMoving = buf.readBoolean()
+        playableWhileMoving = buf.readBoolean(),
+        speedPercent = buf.readVarInt()
     )
 
     fun writeSettings(buf: FriendlyByteBuf, settings: EmoteShopSettings, nowMs: Long) {
@@ -321,6 +323,8 @@ data class EmoteEditorSavePayload(
     val published: Boolean,
     val newDurationMs: Long,
     val playableWhileMoving: Boolean,
+    /** Vitesse de lecture en % ([EmoteListing.MIN_SPEED] à [EmoteListing.MAX_SPEED]). */
+    val speedPercent: Int,
     val fileSha256: String
 ) : CustomPacketPayload {
     override fun type(): CustomPacketPayload.Type<EmoteEditorSavePayload> = TYPE
@@ -344,6 +348,7 @@ data class EmoteEditorSavePayload(
             buf.writeBoolean(p.published)
             buf.writeLong(p.newDurationMs)
             buf.writeBoolean(p.playableWhileMoving)
+            buf.writeVarInt(p.speedPercent)
             buf.writeUtf(p.fileSha256, EmoteCodecs.SHA_LENGTH)
         }, { buf ->
             EmoteEditorSavePayload(
@@ -361,6 +366,7 @@ data class EmoteEditorSavePayload(
                 published = buf.readBoolean(),
                 newDurationMs = buf.readLong(),
                 playableWhileMoving = buf.readBoolean(),
+                speedPercent = buf.readVarInt(),
                 fileSha256 = buf.readUtf(EmoteCodecs.SHA_LENGTH)
             )
         })

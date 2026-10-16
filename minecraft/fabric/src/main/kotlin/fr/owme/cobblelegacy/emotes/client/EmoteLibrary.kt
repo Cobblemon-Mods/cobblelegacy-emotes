@@ -112,7 +112,7 @@ object EmoteLibrary {
                 unlocked = if (catalog.managed) unlocked(listing) else true,
                 isNew = listing.isNew(now),
                 ready = ClientEmoteFiles.isReady(listing.id) || EmoteHolder.list.containsKey(listing.id),
-                durationTicks = listing.durationTicks,
+                durationTicks = listing.playedTicks,
                 loops = listing.loops
             )
         }

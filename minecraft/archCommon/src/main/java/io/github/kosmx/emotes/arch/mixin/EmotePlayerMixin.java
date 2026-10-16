@@ -9,6 +9,7 @@ import dev.kosmx.playerAnim.core.util.Vec3d;
 import io.github.kosmx.emotes.arch.emote.EmotePlayImpl;
 import io.github.kosmx.emotes.main.emotePlay.EmotePlayer;
 import io.github.kosmx.emotes.main.mixinFunctions.IPlayerEntity;
+import io.github.kosmx.emotes.main.network.ClientEmotePlay;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.player.AbstractClientPlayer;
 import net.minecraft.core.BlockPos;
@@ -55,7 +56,10 @@ public abstract class EmotePlayerMixin extends Player implements IPlayerEntity {
 
     @Override
     public void emotecraft$playEmote(KeyframeAnimation emote, int t, boolean isForced) {
-        this.emotecraftEmoteContainer.setAnim(new EmotePlayImpl(emote, this::emotecraft$noteConsumer, t));
+        EmotePlayImpl player = new EmotePlayImpl(emote, this::emotecraft$noteConsumer, t);
+        // CobbleLegacy : vitesse réglée dans l'éditeur, appliquée ici pour le joueur local comme pour les autres.
+        player.setSpeed((float) ClientEmotePlay.speedOf.applyAsDouble(emote));
+        this.emotecraftEmoteContainer.setAnim(player);
         this.initEmotePerspective(emotecraftEmoteContainer.getAnim());
         if (this.isMainPlayer()) this.isForced = isForced;
     }

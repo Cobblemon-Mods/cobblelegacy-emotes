@@ -128,6 +128,7 @@ object SelfTest {
     private var balanceBefore = 0L
     private var testEmoteId: UUID? = null
     private var testEmoteId2: UUID? = null
+    private var speedTickStart = 0
     private var fileBefore: String? = null
     private var photoSize = 0L
     private var heavyBefore = 0L
@@ -654,6 +655,31 @@ object SelfTest {
             check("tri par nom", names == names.sorted())
             vm.sort = Sort.CATALOG
         }
+        then("vitesse : régler ×2", 10) { mc ->
+            val vm = editor(mc)
+            vm.select(id(LEGENDARY))
+            vm.panelTab = PanelTab.OPTIONS
+            vm.update { it.copy(speedPercent = 200) }
+            check("vitesse : 1 modification, sur l'onglet Options", vm.changeCount == 1 && vm.changedIn(PanelTab.OPTIONS))
+        }
+        then("capture vitesse", 10) { mc ->
+            shot(mc, "13d-editeur-vitesse")
+            editor(mc).save()
+        }
+        waitFor("vitesse enregistrée", 10) {
+            onServer { ServerEmoteCatalog.listings[id(LEGENDARY)]?.speedPercent } == 200 && ClientEmoteCatalog.byId[id(LEGENDARY)]?.speedPercent == 200
+        }
+        then("jouer à ×2", 10) { mc ->
+            check("vitesse ×2 enregistrée : durée affichée divisée par 2 (${EmoteLibrary.entry(id(LEGENDARY))!!.durationTicks} ticks)", EmoteLibrary.entry(id(LEGENDARY))!!.durationTicks in 29..32)
+            check("l'émote à ×2 se lance", playLocal(mc, LEGENDARY))
+            speedTickStart = mc.player!!.`emotecraft$getEmote`()!!.tick
+        }
+        then("vitesse mesurée", 5) { mc ->
+            val emote = mc.player!!.`emotecraft$getEmote`()
+            val advanced = (emote?.tick ?: 0) - speedTickStart
+            check("lecture à ×2 : $advanced ticks d'animation en 11 ticks de jeu", emote?.speed == 2f && advanced in 16..24)
+            ClientEmotePlay.clientStopLocalEmote()
+        }
         then("nouvelle émote : fichier", 10) { mc ->
             // Icône énorme dans le fichier (1600×1200, plusieurs Mo) : l'import doit la réduire.
             val newId = writeTestEmote(mc, "Autotest", noisePng(1600, 1200))
@@ -940,7 +966,8 @@ object SelfTest {
         categoryId = listing.categoryId ?: "", rarity = listing.rarity, access = listing.access, price = listing.price,
         discountPercent = if (listing.discountEndsAtMs > System.currentTimeMillis()) listing.discountPercent else 0,
         discountDurationMs = EmoteEditorSavePayload.KEEP, published = listing.published,
-        newDurationMs = EmoteEditorSavePayload.KEEP, playableWhileMoving = listing.playableWhileMoving, fileSha256 = ""
+        newDurationMs = EmoteEditorSavePayload.KEEP, playableWhileMoving = listing.playableWhileMoving,
+        speedPercent = listing.speedPercent, fileSha256 = ""
     )
 
     private fun player(): ServerPlayer {

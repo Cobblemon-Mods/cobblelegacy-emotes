@@ -83,6 +83,8 @@ class EmoteEditorViewModel(initialSelection: UUID?) {
         val published: Boolean,
         /** Se joue en se déplaçant : marcher ou voler ne l'arrête pas. */
         val playableWhileMoving: Boolean,
+        /** Vitesse de lecture en % (100 : normale). */
+        val speedPercent: Int = EmoteListing.DEFAULT_SPEED,
         /** Nouveau fichier à envoyer (icône changée) : octets et empreinte. */
         val pendingFile: ByteArray? = null,
         val pendingSha: String? = null,
@@ -285,7 +287,8 @@ class EmoteEditorViewModel(initialSelection: UUID?) {
                 price = if (listing.price > 0) listing.price.toString() else "",
                 discountPercent = discount.toString(), discountDays = "",
                 newEnabled = listing.isNew(now), newDays = "", published = listing.published,
-                playableWhileMoving = listing.playableWhileMoving
+                playableWhileMoving = listing.playableWhileMoving,
+                speedPercent = listing.speedPercent
             )
         }
         baseline = form
@@ -308,7 +311,8 @@ class EmoteEditorViewModel(initialSelection: UUID?) {
                 current.categoryId != base.categoryId, current.rarity != base.rarity, current.access != base.access,
                 current.price != base.price, current.discountPercent != base.discountPercent, current.discountDays.isNotBlank(),
                 current.newEnabled != base.newEnabled, current.newDays.isNotBlank(),
-                current.playableWhileMoving != base.playableWhileMoving, current.pendingFile != null
+                current.playableWhileMoving != base.playableWhileMoving, current.speedPercent != base.speedPercent,
+                current.pendingFile != null
             ).count { it }
         }
 
@@ -322,7 +326,7 @@ class EmoteEditorViewModel(initialSelection: UUID?) {
             PanelTab.SALE -> current.access != base.access || current.price != base.price ||
                 current.discountPercent != base.discountPercent || current.discountDays.isNotBlank()
             PanelTab.OPTIONS -> current.newEnabled != base.newEnabled || current.newDays.isNotBlank() ||
-                current.playableWhileMoving != base.playableWhileMoving
+                current.playableWhileMoving != base.playableWhileMoving || current.speedPercent != base.speedPercent
         }
     }
 
@@ -491,6 +495,7 @@ class EmoteEditorViewModel(initialSelection: UUID?) {
             published = current.published,
             newDurationMs = newDuration,
             playableWhileMoving = current.playableWhileMoving,
+            speedPercent = current.speedPercent.coerceIn(EmoteListing.MIN_SPEED, EmoteListing.MAX_SPEED),
             fileSha256 = if (file != null) sha!! else ""
         )
         if (!ClientPlayNetworking.canSend(EmoteEditorSavePayload.TYPE)) return toast(EmotesI18n.t("editor.error.server"), false)
@@ -517,7 +522,8 @@ class EmoteEditorViewModel(initialSelection: UUID?) {
                 author = draft.parsed.author.take(EmoteListing.MAX_AUTHOR_LENGTH),
                 categoryId = "", rarity = EmoteRarity.COMMUN, access = EmoteAccess.SHOP, price = 500,
                 discountPercent = 0, discountDurationMs = 0, published = false,
-                newDurationMs = EmoteEditorSavePayload.KEEP, playableWhileMoving = false, fileSha256 = draft.sha256
+                newDurationMs = EmoteEditorSavePayload.KEEP, playableWhileMoving = false,
+                speedPercent = EmoteListing.DEFAULT_SPEED, fileSha256 = draft.sha256
             )
             EmoteUploader.send(draft.data, draft.sha256) { ClientPlayNetworking.send(payload) }
         }

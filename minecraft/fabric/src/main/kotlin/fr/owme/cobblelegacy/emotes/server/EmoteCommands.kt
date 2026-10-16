@@ -108,6 +108,13 @@ object EmoteCommands {
                         )
                     )
                 )
+                .then(
+                    Commands.literal("vitesse").then(
+                        Commands.argument("emote", StringArgumentType.string()).suggests(emoteSuggestions).then(
+                            Commands.argument("pourcent", IntegerArgumentType.integer(EmoteListing.MIN_SPEED, EmoteListing.MAX_SPEED)).executes(::speed)
+                        )
+                    )
+                )
         )
     }
 
@@ -142,6 +149,7 @@ object EmoteCommands {
                 if (!listing.published) add("brouillon")
                 if (listing.isNew(now)) add("NEW")
                 if (listing.playableWhileMoving) add("en mouvement")
+                if (listing.speedPercent != EmoteListing.DEFAULT_SPEED) add("vitesse ${listing.speedPercent} %")
                 ServerEmoteCatalog.settings.discountOf(listing, now).takeIf { it > 0 }?.let { add("-$it %") }
             }.joinToString(", ")
             context.source.sendSuccess({
@@ -266,6 +274,16 @@ object EmoteCommands {
         return 1
     }
 
+    private fun speed(context: CommandContext<CommandSourceStack>): Int {
+        val listing = emoteArg(context) ?: return 0
+        val percent = IntegerArgumentType.getInteger(context, "pourcent")
+        save(context, listing.copyForSave(speedPercent = percent)) {
+            if (percent == EmoteListing.DEFAULT_SPEED) "« ${listing.name} » se joue de nouveau à sa vitesse normale."
+            else "« ${listing.name} » se joue maintenant à $percent % de sa vitesse."
+        }
+        return 1
+    }
+
     private fun save(context: CommandContext<CommandSourceStack>, payload: EmoteEditorSavePayload, success: () -> String) {
         EmoteAdmin.save(context.source.server, context.source.player?.uuid, payload) { error ->
             if (error != null) fail(context, error) else ok(context, success())
@@ -277,7 +295,8 @@ object EmoteCommands {
         access: EmoteAccess = this.access,
         price: Long = this.price,
         newDurationMs: Long = EmoteEditorSavePayload.KEEP,
-        playableWhileMoving: Boolean = this.playableWhileMoving
+        playableWhileMoving: Boolean = this.playableWhileMoving,
+        speedPercent: Int = this.speedPercent
     ) = EmoteEditorSavePayload(
         creating = false,
         id = id,
@@ -293,6 +312,7 @@ object EmoteCommands {
         published = published,
         newDurationMs = newDurationMs,
         playableWhileMoving = playableWhileMoving,
+        speedPercent = speedPercent,
         fileSha256 = ""
     )
 }

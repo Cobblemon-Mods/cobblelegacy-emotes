@@ -15,6 +15,7 @@ import io.github.kosmx.emotes.api.events.client.ClientEmoteEvents
 import io.github.kosmx.emotes.main.EmoteHolder
 import io.github.kosmx.emotes.main.network.ClientEmotePlay
 import java.util.function.Predicate
+import java.util.function.ToDoubleFunction
 import java.util.function.UnaryOperator
 import net.fabricmc.api.ClientModInitializer
 import net.fabricmc.api.EnvType
@@ -78,6 +79,9 @@ object CobbleLegacyEmotesClient : ClientModInitializer {
         // Émotes réglées « en mouvement » dans l'éditeur (une course…) : marcher, courir ou voler ne
         // les arrête pas. S'accroupir les arrête toujours (Emotecraft, changement de posture).
         ClientEmotePlay.playableWhileMoving = Predicate { emote -> ClientEmoteCatalog.byId[emote.uuid]?.playableWhileMoving == true }
+
+        // Vitesse réglée dans l'éditeur : chaque client l'applique à la lecture, pour tous les joueurs.
+        ClientEmotePlay.speedOf = ToDoubleFunction { emote -> (ClientEmoteCatalog.byId[emote.uuid]?.speed ?: 1f).toDouble() }
 
         // Émotes du catalogue : le réseau ne transporte qu'une version allégée, chacun joue sa copie
         // téléchargée (les grosses émotes dépassaient la taille d'un paquet d'Emotecraft).

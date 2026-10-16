@@ -85,7 +85,9 @@ fun EmotePlayerPreview(
     /** Change de valeur : l'émote reprend du début. */
     restartKey: Int = 0,
     /** Avancement (0 à 1), à chaque image : pour une barre de lecture. */
-    onProgress: ((Float) -> Unit)? = null
+    onProgress: ((Float) -> Unit)? = null,
+    /** Vitesse de lecture imposée (éditeur) ; `null` : celle du catalogue. */
+    speed: Float? = null
 ) {
     val surface = LocalSkiaSurface.current
     val preview = remember { EmotePreview() }
@@ -99,6 +101,7 @@ fun EmotePlayerPreview(
     SideEffect {
         preview.show(animation)
         preview.paused = paused
+        preview.speedOverride = speed
     }
     LaunchedEffect(restartKey) { if (restartKey != 0) preview.restart() }
     val progressRef = rememberUpdatedState(onProgress)

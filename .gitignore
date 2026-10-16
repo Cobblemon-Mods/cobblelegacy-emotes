@@ -21,6 +21,8 @@ bin/
 
 #fabric
 run/
+# Émotes de test de l'autotest (fichiers tiers, pas dans le dépôt)
+selftest-emotes/
 
 #project junk
 quark api.txt

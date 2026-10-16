@@ -25,6 +25,19 @@ class EmotePreview {
     /** Lecture figée (bouton pause de l'éditeur) : le mannequin garde sa pose. */
     var paused = false
 
+    /** Vitesse imposée (éditeur, avant enregistrement) ; `null` : celle du catalogue. Change sans relancer. */
+    var speedOverride: Float? = null
+        set(value) {
+            if (field == value) return
+            field = value
+            applySpeed()
+        }
+
+    private fun applySpeed() {
+        val speed = speedOverride ?: return
+        player?.`emotecraft$getEmote`()?.setSpeed(speed)
+    }
+
     /** Avancement de l'émote, de 0 à 1 (une émote en boucle repart de sa boucle). */
     val progress: Float
         get() {
@@ -45,6 +58,7 @@ class EmotePreview {
         val mannequin = entity() ?: return
         val current = animation
         if (current == null) mannequin.`emotecraft$voidEmote`() else mannequin.`emotecraft$playEmote`(current, 0, false)
+        applySpeed()
     }
 
     /** Le mannequin, recréé si le monde a changé. `null` hors d'une partie. */
@@ -57,6 +71,7 @@ class EmotePreview {
         val created = EmotePreviewMannequin.create(level, local.gameProfile)
         player = created
         animation?.let { created.`emotecraft$playEmote`(it, 0, false) }
+        applySpeed()
         return created
     }
 

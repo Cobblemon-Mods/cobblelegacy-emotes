@@ -1,6 +1,7 @@
 package fr.owme.cobblelegacy.emotes.client.ui
 
 import fr.owme.cobblelegacy.emotes.catalog.EmoteRarity
+import net.minecraft.client.Minecraft
 import net.minecraft.client.resources.language.I18n
 import java.util.Locale
 
@@ -24,6 +25,17 @@ object EmotesI18n {
             val total = seconds.toInt()
             t("time.minutes_seconds", total / 60, total % 60)
         }
+    }
+
+    /** Vitesse de lecture : « ×1 », « ×1,5 », « ×0,75 » (point au lieu de la virgule en anglais). */
+    fun speed(percent: Int): String {
+        val value = when {
+            percent % 100 == 0 -> "${percent / 100}"
+            percent % 10 == 0 -> String.format(Locale.ROOT, "%.1f", percent / 100.0)
+            else -> String.format(Locale.ROOT, "%.2f", percent / 100.0)
+        }
+        val french = Minecraft.getInstance().options.languageCode.startsWith("fr")
+        return "×" + if (french) value.replace('.', ',') else value
     }
 
     /** Temps restant : « 13 j 4 h », « 5 h 12 min », « 8 min ». */

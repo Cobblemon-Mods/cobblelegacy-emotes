@@ -48,6 +48,9 @@ public class ClientEmotePlay extends ClientEmoteAPI {
      */
     public static java.util.function.Predicate<KeyframeAnimation> playableWhileMoving = emote -> false;
 
+    /** CobbleLegacy : vitesse de lecture d'une émote (1 : normale), la même chez tous les joueurs. */
+    public static java.util.function.ToDoubleFunction<KeyframeAnimation> speedOf = emote -> 1.0;
+
     public static void clientStartLocalEmote(EmoteHolder emoteHolder) {
         clientStartLocalEmote(emoteHolder.getEmote());
     }

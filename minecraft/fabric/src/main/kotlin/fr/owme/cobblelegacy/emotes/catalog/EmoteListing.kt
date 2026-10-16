@@ -52,8 +52,16 @@ data class EmoteListing(
     val hasIcon: Boolean,
     val addedAtMs: Long,
     /** Se joue en se déplaçant (une course…) : marcher ou voler ne l'arrête pas, s'accroupir oui. */
-    val playableWhileMoving: Boolean = false
+    val playableWhileMoving: Boolean = false,
+    /** Vitesse de lecture en % (100 : normale), appliquée par chaque client sans toucher au fichier. */
+    val speedPercent: Int = DEFAULT_SPEED
 ) {
+    /** Multiplicateur de lecture (1 : normale). */
+    val speed: Float get() = speedPercent / 100f
+
+    /** Durée réelle d'une lecture, en ticks, à cette vitesse. */
+    val playedTicks: Int get() = Math.round(durationTicks * 100f / speedPercent)
+
     val forSale: Boolean get() = published && access == EmoteAccess.SHOP && price > 0
 
     fun isNew(nowMs: Long): Boolean = newUntilMs > nowMs
@@ -66,6 +74,10 @@ data class EmoteListing(
         const val MAX_NAME_LENGTH = 48
         const val MAX_DESCRIPTION_LENGTH = 160
         const val MAX_AUTHOR_LENGTH = 48
+
+        const val DEFAULT_SPEED = 100
+        const val MIN_SPEED = 25
+        const val MAX_SPEED = 400
     }
 }
 
